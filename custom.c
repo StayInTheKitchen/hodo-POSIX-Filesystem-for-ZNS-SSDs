@@ -20,6 +20,7 @@
 
 #define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
 
+ // ---------- hdmr_structures ----------
 struct hdmr_block_pos {
     uint32_t zone_id;
     uint64_t offset;
@@ -59,9 +60,12 @@ struct hdmr_mapping_info {
     int starting_ino;
     struct hdmr_datablock_pos wp;
     uint32_t bitmap[HDMR_MAX_INODE / 32];
-};
+} global_mapping_info;
+
+// ---------- hdmr_sub_function_interface ----------
 
 
+// ---------- tool_function_interface ----------
 
 
 // ---------- file_operations ----------
@@ -139,7 +143,7 @@ const struct file_operations hdmr_file_operations = {
 };
 
 
-// inode operations
+// ---------- inode operations ----------
 
 static int hdmr_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
     ZONEFS_TRACE();
@@ -211,7 +215,7 @@ static int hdmr_swap_activate(struct swap_info_struct *sis, struct file *file,
     return zonefs_file_aops.swap_activate(sis, file, span);
 }
 
-const struct address_space_operations custom_zonefs_file_aops = {
+const struct address_space_operations hdmr_file_aops = {
     .read_folio            = hdmr_read_folio,
     .readahead             = hdmr_readahead,
     .writepages            = hdmr_writepages,
@@ -223,3 +227,9 @@ const struct address_space_operations custom_zonefs_file_aops = {
     .error_remove_folio    = hdmr_error_remove_folio,
     .swap_activate         = hdmr_swap_activate,
 };
+
+// ---------- hdmr_sub_function_implementaion ----------
+
+
+
+// ---------- tool_function_implementation ----------
