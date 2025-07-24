@@ -19,7 +19,7 @@ struct hdmr_inode {
 
     uint8_t  name_len;
     char     name[HDMR_MAX_NAME_LEN];
-    uint8_t  type;
+    uint8_t  type; // 0: file, 1: directory
 
     uint64_t i_ino;
     umode_t  i_mode;
@@ -31,10 +31,10 @@ struct hdmr_inode {
     struct timespec64 i_mtime;
     struct timespec64 i_ctime;
 
-    struct hdmr_datablock_pos direct[10];
-    struct hdmr_datablock_pos single_indirect;
-    struct hdmr_datablock_pos double_indirect;
-    struct hdmr_datablock_pos triple_indirect;
+    struct hdmr_block_pos direct[10];
+    struct hdmr_block_pos single_indirect;
+    struct hdmr_block_pos double_indirect;
+    struct hdmr_block_pos triple_indirect;
 };
 
 struct hdmr_datablock {
@@ -43,14 +43,13 @@ struct hdmr_datablock {
 };
 
 struct hdmr_mapping_info {
-    struct hdmr_datablock_pos mapping_table[HDMR_MAX_INODE];
+    struct hdmr_block_pos mapping_table[HDMR_MAX_INODE];
     int starting_ino;
-    struct hdmr_datablock_pos wp;
+    struct hdmr_block_pos wp;
     uint32_t bitmap[HDMR_MAX_INODE / 32];
 };
 
-
-
+struct hdmr_mapping_info mapping_info;
 
 // ---------- file_operations ----------
 static int hdmr_open(struct inode *inode, struct file *filp) {
@@ -128,7 +127,6 @@ const struct file_operations hdmr_file_operations = {
 
 
 // inode operations
-
 static int hdmr_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
     ZONEFS_TRACE();
     return zonefs_dir_inode_operations.setattr(idmap, dentry, iattr);
@@ -137,6 +135,65 @@ static int hdmr_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct i
 static struct dentry *hdmr_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_dir_inode_operations.lookup(dir, dentry, flags);
+}
+
+static int hdmr_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl) {
+    ZONEFS_TRACE();
+
+    struct inode *inode;
+    struct timespec64 now;
+    struct hdmr_inode hinode;
+
+    inode = new_inode(dir->i_sb);
+    now = current_time(inode);  // inode의 superblock의 시간 정책에 따른 현재 시각
+
+    // 여기부터 hinode 초기화: 함수로 리팩터링
+    hinode.magic[0] = 'I';
+    hinode.magic[1] = 'N';
+    hinode.magic[2] = 'O';
+    hinode.magic[3] = 'D';
+
+    hinode.file_len = 0;
+
+    hinode.name_len = dentry->d_name.len; 
+    if (name_len > HDMR_MAX_NAME_LEN) {
+        // 구현해야 될 부분: error handling
+    }
+    memcpy(hinode.name, dentry->d_name.name, hinode.name_len);
+
+    hinode.type = 0;
+
+    // 구현해야 될 부분: hdmr_get_next_ino();
+    hinode.i_ino = hdmr_get_next_ino();
+    // 논의 사항: i_mode에 S_IFREG (regular file), S_IFDIR (directory) 두 개로 file인지 directory인지 구분이 가능함
+    // 따라서, type 멤버 변수가 필요 없음.
+    hinode.i_mode = S_IFREG | mode; 
+
+    hinode.i_uid = current_fsuid();
+    hinode.i_gid = current_fsgid();
+
+    hinode.i_nlink = 1;
+
+    hinode.i_atime = now;
+    hinode.i_mtime = now;
+    hinode.i_ctime = now;
+    // 여기까지 hinode 초기화: 함수로 리팩터링
+
+    inode->i_ino  = hinode.i_ino;
+    inode->i_sb   = dir->i_sb;
+    inode->i_op   = &hdmr_inode_operations;
+    inode->i_fop  = &hdmr_file_operations;
+    inode->i_mode = S_IFREG | mode;
+    inode->i_uid  = current_fsuid();
+    inode->i_gid  = current_fsgid();
+
+    inode_set_ctime_to_ts(inode, now);
+    inode_set_atime_to_ts(inode, now);
+    inode_set_mtime_to_ts(inode, now);
+
+    d_add(dentry, inode);
+
+    // 구현할 부분: zns-ssd에 hdmr inode를 저장하는 부분을 구현해야 됨.
 }
 
 const struct inode_operations hdmr_inode_operations = {
