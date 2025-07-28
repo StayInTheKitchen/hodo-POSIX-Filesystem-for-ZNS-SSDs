@@ -27,6 +27,7 @@
 #include <linux/task_io_accounting_ops.h>
 
 #include "zonefs.h"
+#include "hodo.h"
 
 #include "trace.h"
 
@@ -773,6 +774,7 @@ unlock:
 
 static int zonefs_file_open(struct inode *inode, struct file *file)
 {
+	ZONEFS_TRACE();
 	int ret;
 
 	file->f_mode |= FMODE_CAN_ODIRECT;
