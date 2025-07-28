@@ -1237,6 +1237,7 @@ deps_fs/zonefs/file.o := \
   include/uapi/asm-generic/hugetlb_encode.h \
   include/linux/task_io_accounting_ops.h \
   fs/zonefs/zonefs.h \
+  fs/zonefs/hodo.h \
   fs/zonefs/trace.h \
   include/linux/tracepoint.h \
     $(wildcard include/config/HAVE_SYSCALL_TRACEPOINTS) \

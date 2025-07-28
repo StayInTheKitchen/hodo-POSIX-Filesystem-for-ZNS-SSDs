@@ -23,6 +23,7 @@
 #include <linux/task_io_accounting_ops.h>
 
 #include "zonefs.h"
+#include "hodo.h"
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -640,6 +641,7 @@ static long zonefs_fname_to_fno(const struct qstr *fname)
 static struct inode *zonefs_get_file_inode(struct inode *dir,
                                            struct dentry *dentry)
 {
+        ZONEFS_TRACE();
         struct zonefs_zone_group *zgroup = dir->i_private;
         struct super_block *sb = dir->i_sb;
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
@@ -676,9 +678,9 @@ static struct inode *zonefs_get_file_inode(struct inode *dir,
         inode->i_blocks = z->z_capacity >> SECTOR_SHIFT;
         inode->i_private = z;
 
-        inode->i_op = &custom_zonefs_file_inode_operations;
-        inode->i_fop = &custom_zonefs_file_operations;
-        inode->i_mapping->a_ops = &custom_zonefs_file_aops;
+        inode->i_op = &hodo_inode_operations;
+        inode->i_fop = &hodo_file_operations;
+        inode->i_mapping->a_ops = &hodo_file_aops;
 
         /* Update the inode access rights depending on the zone condition */
         zonefs_inode_update_mode(inode);
@@ -691,6 +693,7 @@ static struct inode *zonefs_get_file_inode(struct inode *dir,
 static struct inode *zonefs_get_zgroup_inode(struct super_block *sb,
                                              enum zonefs_ztype ztype)
 {
+        ZONEFS_TRACE();
         struct inode *root = d_inode(sb->s_root);
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         struct inode *inode;
@@ -710,8 +713,8 @@ static struct inode *zonefs_get_zgroup_inode(struct super_block *sb,
         inode->i_private = &sbi->s_zgroup[ztype];
         set_nlink(inode, 2);
 
-        inode->i_op = &custom_zonefs_dir_inode_operations;
-        inode->i_fop = &custom_zonefs_dir_operations;
+        inode->i_op = &hodo_inode_operations;
+        inode->i_fop = &hodo_file_operations;
 
         unlock_new_inode(inode);
 
@@ -722,6 +725,7 @@ static struct inode *zonefs_get_zgroup_inode(struct super_block *sb,
 static struct inode *zonefs_get_dir_inode(struct inode *dir,
                                           struct dentry *dentry)
 {
+        ZONEFS_TRACE();
         struct super_block *sb = dir->i_sb;
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         const char *name = dentry->d_name.name;
@@ -748,6 +752,7 @@ static struct inode *zonefs_get_dir_inode(struct inode *dir,
 static struct dentry *zonefs_lookup(struct inode *dir, struct dentry *dentry,
                                     unsigned int flags)
 {
+        ZONEFS_TRACE();
         struct inode *inode;
 
         if (dentry->d_name.len > ZONEFS_NAME_MAX)
@@ -849,14 +854,14 @@ static int zonefs_readdir(struct file *file, struct dir_context *ctx)
 }
 
 const struct inode_operations zonefs_dir_inode_operations = {
-        .lookup         = zonefs_lookup,
-        .setattr        = zonefs_inode_setattr,
+	.lookup		= zonefs_lookup,
+	.setattr	= zonefs_inode_setattr,
 };
 
 const struct file_operations zonefs_dir_operations = {
-        .llseek         = generic_file_llseek,
-        .read           = generic_read_dir,
-        .iterate_shared = zonefs_readdir,
+	.llseek		= generic_file_llseek,
+	.read		= generic_read_dir,
+	.iterate_shared	= zonefs_readdir,
 };
 
 struct zonefs_zone_data {
@@ -1211,6 +1216,7 @@ static const struct super_operations zonefs_sops = {
 
 static int zonefs_get_zgroup_inodes(struct super_block *sb)
 {
+        ZONEFS_TRACE();
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         struct inode *dir_inode;
         enum zonefs_ztype ztype;
@@ -1252,6 +1258,7 @@ static void zonefs_release_zgroup_inodes(struct super_block *sb)
  */
 static int zonefs_fill_super(struct super_block *sb, void *data, int silent)
 {
+        ZONEFS_TRACE();
         struct zonefs_sb_info *sbi;
         struct inode *inode;
         enum zonefs_ztype ztype;
@@ -1328,8 +1335,8 @@ static int zonefs_fill_super(struct super_block *sb, void *data, int silent)
         inode->i_ino = bdev_nr_zones(sb->s_bdev);
         inode->i_mode = S_IFDIR | 0555;
         simple_inode_init_ts(inode);
-        inode->i_op = &custom_zonefs_dir_inode_operations;
-        inode->i_fop = &custom_zonefs_dir_operations;
+        inode->i_op = &hodo_inode_operations;
+        inode->i_fop = &hodo_file_operations;
         inode->i_size = 2;
         set_nlink(inode, 2);
         for (ztype = 0; ztype < ZONEFS_ZTYPE_MAX; ztype++) {
@@ -1433,6 +1440,8 @@ static int __init zonefs_init(void)
         ret = register_filesystem(&zonefs_type);
         if (ret)
                 goto sysfs_exit;
+
+        hodo_init();
 
         return 0;
 

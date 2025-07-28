@@ -1240,6 +1240,7 @@ deps_fs/zonefs/super.o := \
     $(wildcard include/config/HAVE_ARCH_BITREVERSE) \
   include/linux/task_io_accounting_ops.h \
   fs/zonefs/zonefs.h \
+  fs/zonefs/hodo.h \
   fs/zonefs/trace.h \
   include/linux/tracepoint.h \
     $(wildcard include/config/HAVE_SYSCALL_TRACEPOINTS) \
