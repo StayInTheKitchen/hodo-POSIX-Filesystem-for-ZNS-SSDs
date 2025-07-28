@@ -3,22 +3,22 @@
 
 #include "zonefs.h"
 
-#define HDMR_MAX_NAME_LEN   16
-#define HDMR_MAX_INODE      (1 << 16)
+#define HODO_MAX_NAME_LEN   16
+#define HODO_MAX_INODE      (1 << 16)
 
 #define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
 
-struct hdmr_block_pos {
+struct hodo_block_pos {
     uint32_t zone_id;
     uint64_t offset;
 };
 
-struct hdmr_inode {
+struct hodo_inode {
     char magic[4];
     uint64_t file_len;
 
     uint8_t  name_len;
-    char     name[HDMR_MAX_NAME_LEN];
+    char     name[HODO_MAX_NAME_LEN];
     uint8_t  type; // 0: file, 1: directory
 
     uint64_t i_ino;
@@ -31,118 +31,118 @@ struct hdmr_inode {
     struct timespec64 i_mtime;
     struct timespec64 i_ctime;
 
-    struct hdmr_block_pos direct[10];
-    struct hdmr_block_pos single_indirect;
-    struct hdmr_block_pos double_indirect;
-    struct hdmr_block_pos triple_indirect;
+    struct hodo_block_pos direct[10];
+    struct hodo_block_pos single_indirect;
+    struct hodo_block_pos double_indirect;
+    struct hodo_block_pos triple_indirect;
 };
 
-struct hdmr_datablock {
+struct hodo_datablock {
     char magic[4];
     char data[4092];
 };
 
-struct hdmr_mapping_info {
-    struct hdmr_block_pos mapping_table[HDMR_MAX_INODE];
+struct hodo_mapping_info {
+    struct hodo_block_pos mapping_table[HODO_MAX_INODE];
     int starting_ino;
-    struct hdmr_block_pos wp;
-    uint32_t bitmap[HDMR_MAX_INODE / 32];
+    struct hodo_block_pos wp;
+    uint32_t bitmap[HODO_MAX_INODE / 32];
 };
 
-struct hdmr_mapping_info mapping_info;
+struct hodo_mapping_info mapping_info;
 
 // ---------- file_operations ----------
-static int hdmr_open(struct inode *inode, struct file *filp) {
+static int hodo_open(struct inode *inode, struct file *filp) {
     ZONEFS_TRACE();
     return zonefs_file_operations.open(inode, filp);
 }
 
-static int hdmr_release(struct inode *inode, struct file *filp) {
+static int hodo_release(struct inode *inode, struct file *filp) {
     ZONEFS_TRACE();
     return zonefs_file_operations.release(inode, filp);
 }
 
-static int hdmr_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
+static int hodo_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
     ZONEFS_TRACE();
     return zonefs_file_operations.fsync(filp, start, end, datasync);
 }
 
-static int hdmr_mmap(struct file *filp, struct vm_area_struct *vma) {
+static int hodo_mmap(struct file *filp, struct vm_area_struct *vma) {
     ZONEFS_TRACE();
     return zonefs_file_operations.mmap(filp, vma);
 }
 
-static loff_t hdmr_llseek(struct file *filp, loff_t offset, int whence) {
+static loff_t hodo_llseek(struct file *filp, loff_t offset, int whence) {
     ZONEFS_TRACE();
     return zonefs_file_operations.llseek(filp, offset, whence);
 }
 
-static ssize_t hdmr_read_iter(struct kiocb *iocb, struct iov_iter *to)
+static ssize_t hodo_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	ZONEFS_TRACE();
 	return zonefs_file_operations.read_iter(iocb, to);
 }
 
 
-static ssize_t hdmr_write_iter(struct kiocb *iocb, struct iov_iter *from) {
+static ssize_t hodo_write_iter(struct kiocb *iocb, struct iov_iter *from) {
     ZONEFS_TRACE();
     return zonefs_file_operations.write_iter(iocb, from);
 }
 
-static ssize_t hdmr_splice_read(struct file *in, loff_t *ppos,
+static ssize_t hodo_splice_read(struct file *in, loff_t *ppos,
                                               struct pipe_inode_info *pipe, size_t len, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_file_operations.splice_read(in, ppos, pipe, len, flags);
 }
 
-static ssize_t hdmr_splice_write(struct pipe_inode_info *pipe, struct file *out,
+static ssize_t hodo_splice_write(struct pipe_inode_info *pipe, struct file *out,
                                              loff_t *ppos, size_t len, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_file_operations.splice_write(pipe, out, ppos, len, flags);
 }
 
-static int hdmr_iocb_bio_iopoll(struct kiocb *iocb, struct io_comp_batch *iob, unsigned int flags) {
+static int hodo_iocb_bio_iopoll(struct kiocb *iocb, struct io_comp_batch *iob, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_file_operations.iopoll(iocb, iob, flags);
 }
 
-static int hdmr_readdir(struct file *file, struct dir_context *ctx) {
+static int hodo_readdir(struct file *file, struct dir_context *ctx) {
     ZONEFS_TRACE();
     return zonefs_dir_operations.iterate_shared(file, ctx);
 }
 
-const struct file_operations hdmr_file_operations = {
-    .open           = hdmr_open,
-    .release        = hdmr_release,
-    .fsync          = hdmr_fsync,
-    .mmap           = hdmr_mmap,
-    .llseek         = hdmr_llseek,
-    .read_iter      = hdmr_read_iter,
-    .write_iter     = hdmr_write_iter,
-    .splice_read    = hdmr_splice_read,
-    .splice_write   = hdmr_splice_write,
-    .iopoll         = hdmr_iocb_bio_iopoll,
-    .iterate_shared = hdmr_readdir,
+const struct file_operations hodo_file_operations = {
+    .open           = hodo_open,
+    .release        = hodo_release,
+    .fsync          = hodo_fsync,
+    .mmap           = hodo_mmap,
+    .llseek         = hodo_llseek,
+    .read_iter      = hodo_read_iter,
+    .write_iter     = hodo_write_iter,
+    .splice_read    = hodo_splice_read,
+    .splice_write   = hodo_splice_write,
+    .iopoll         = hodo_iocb_bio_iopoll,
+    .iterate_shared = hodo_readdir,
 };
 
 
 // inode operations
-static int hdmr_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
+static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
     ZONEFS_TRACE();
     return zonefs_dir_inode_operations.setattr(idmap, dentry, iattr);
 }
 
-static struct dentry *hdmr_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
+static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_dir_inode_operations.lookup(dir, dentry, flags);
 }
 
-static int hdmr_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl) {
+static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl) {
     ZONEFS_TRACE();
 
     struct inode *inode;
     struct timespec64 now;
-    struct hdmr_inode hinode;
+    struct hodo_inode hinode;
 
     inode = new_inode(dir->i_sb);
     now = current_time(inode);  // inode의 superblock의 시간 정책에 따른 현재 시각
@@ -156,15 +156,15 @@ static int hdmr_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
     hinode.file_len = 0;
 
     hinode.name_len = dentry->d_name.len; 
-    if (name_len > HDMR_MAX_NAME_LEN) {
+    if (name_len > HODO_MAX_NAME_LEN) {
         // 구현해야 될 부분: error handling
     }
     memcpy(hinode.name, dentry->d_name.name, hinode.name_len);
 
     hinode.type = 0;
 
-    // 구현해야 될 부분: hdmr_get_next_ino();
-    hinode.i_ino = hdmr_get_next_ino();
+    // 구현해야 될 부분: hodo_get_next_ino();
+    hinode.i_ino = hodo_get_next_ino();
     // 논의 사항: i_mode에 S_IFREG (regular file), S_IFDIR (directory) 두 개로 file인지 directory인지 구분이 가능함
     // 따라서, type 멤버 변수가 필요 없음.
     hinode.i_mode = S_IFREG | mode; 
@@ -181,8 +181,8 @@ static int hdmr_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
 
     inode->i_ino  = hinode.i_ino;
     inode->i_sb   = dir->i_sb;
-    inode->i_op   = &hdmr_inode_operations;
-    inode->i_fop  = &hdmr_file_operations;
+    inode->i_op   = &hodo_inode_operations;
+    inode->i_fop  = &hodo_file_operations;
     inode->i_mode = S_IFREG | mode;
     inode->i_uid  = current_fsuid();
     inode->i_gid  = current_fsgid();
@@ -193,78 +193,78 @@ static int hdmr_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
 
     d_add(dentry, inode);
 
-    // 구현할 부분: zns-ssd에 hdmr inode를 저장하는 부분을 구현해야 됨.
+    // 구현할 부분: zns-ssd에 hodo inode를 저장하는 부분을 구현해야 됨.
 }
 
-const struct inode_operations hdmr_inode_operations = {
-    .lookup  = hdmr_lookup,
-    .setattr = hdmr_setattr,
-    .create = hdmr_create,
+const struct inode_operations hodo_inode_operations = {
+    .lookup  = hodo_lookup,
+    .setattr = hodo_setattr,
+    .create = hodo_create,
 };
 
 // ---------- aops ----------
-static int hdmr_read_folio(struct file *file, struct folio *folio) {
+static int hodo_read_folio(struct file *file, struct folio *folio) {
     ZONEFS_TRACE();
     return zonefs_file_aops.read_folio(file, folio);
 }
 
-static void hdmr_readahead(struct readahead_control *rac) {
+static void hodo_readahead(struct readahead_control *rac) {
     ZONEFS_TRACE();
     zonefs_file_aops.readahead(rac);
 }
 
-static int hdmr_writepages(struct address_space *mapping,
+static int hodo_writepages(struct address_space *mapping,
                                     struct writeback_control *wbc) {
     ZONEFS_TRACE();
     return zonefs_file_aops.writepages(mapping, wbc);
 }
 
-static bool hdmr_dirty_folio(struct address_space *mapping, struct folio *folio) {
+static bool hodo_dirty_folio(struct address_space *mapping, struct folio *folio) {
     ZONEFS_TRACE();
     return zonefs_file_aops.dirty_folio(mapping, folio);
 }
 
-static bool hdmr_release_folio(struct folio *folio, gfp_t gfp) {
+static bool hodo_release_folio(struct folio *folio, gfp_t gfp) {
     ZONEFS_TRACE();
     return  zonefs_file_aops.release_folio(folio, gfp);
 }
 
-static void hdmr_invalidate_folio(struct folio *folio, size_t offset, size_t length) {
+static void hodo_invalidate_folio(struct folio *folio, size_t offset, size_t length) {
     ZONEFS_TRACE();
     zonefs_file_aops.invalidate_folio(folio, offset, length);
 }
 
-static int hdmr_migrate_folio(struct address_space *mapping,
+static int hodo_migrate_folio(struct address_space *mapping,
                                         struct folio *dst, struct folio *src, enum migrate_mode mode) {
     ZONEFS_TRACE();
     return zonefs_file_aops.migrate_folio(mapping, dst, src, mode);
 }
 
-static bool hdmr_is_partially_uptodate(struct folio *folio, size_t from, size_t count) {
+static bool hodo_is_partially_uptodate(struct folio *folio, size_t from, size_t count) {
     ZONEFS_TRACE();
     return zonefs_file_aops.is_partially_uptodate(folio, from, count);
 }
 
-static int hdmr_error_remove_folio(struct address_space *mapping, struct folio *folio) {
+static int hodo_error_remove_folio(struct address_space *mapping, struct folio *folio) {
     ZONEFS_TRACE();
     return zonefs_file_aops.error_remove_folio(mapping, folio);
 }
 
-static int hdmr_swap_activate(struct swap_info_struct *sis, struct file *file,
+static int hodo_swap_activate(struct swap_info_struct *sis, struct file *file,
                                        sector_t *span) {
     ZONEFS_TRACE();
     return zonefs_file_aops.swap_activate(sis, file, span);
 }
 
 const struct address_space_operations custom_zonefs_file_aops = {
-    .read_folio            = hdmr_read_folio,
-    .readahead             = hdmr_readahead,
-    .writepages            = hdmr_writepages,
-    .dirty_folio           = hdmr_dirty_folio,
-    .release_folio         = hdmr_release_folio,
-    .invalidate_folio      = hdmr_invalidate_folio,
-    .migrate_folio         = hdmr_migrate_folio,
-    .is_partially_uptodate = hdmr_is_partially_uptodate,
-    .error_remove_folio    = hdmr_error_remove_folio,
-    .swap_activate         = hdmr_swap_activate,
+    .read_folio            = hodo_read_folio,
+    .readahead             = hodo_readahead,
+    .writepages            = hodo_writepages,
+    .dirty_folio           = hodo_dirty_folio,
+    .release_folio         = hodo_release_folio,
+    .invalidate_folio      = hodo_invalidate_folio,
+    .migrate_folio         = hodo_migrate_folio,
+    .is_partially_uptodate = hodo_is_partially_uptodate,
+    .error_remove_folio    = hodo_error_remove_folio,
+    .swap_activate         = hodo_swap_activate,
 };
