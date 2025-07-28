@@ -273,7 +273,11 @@ static inline void zonefs_io_error(struct inode *inode, bool write)
 
 /* In hodo.c */
 extern const struct file_operations hodo_file_operations;
-extern const struct inode_operations hodo_inode_operations;
+extern const struct file_operations hodo_dir_operations;
+
+extern const struct inode_operations hodo_file_inode_operations;
+extern const struct inode_operations hodo_dir_inode_operations;
+
 extern const struct address_space_operations hodo_file_aops;
 
 /* In super.c */

@@ -18,7 +18,7 @@ void hodo_init() {
 }
 
 // ---------- file_operations ----------
-static int hodo_open(struct inode *inode, struct file *filp) {
+static int hodo_file_open(struct inode *inode, struct file *filp) {
     ZONEFS_TRACE();
 
     struct dentry *dentry = filp->f_path.dentry;
@@ -30,17 +30,13 @@ static int hodo_open(struct inode *inode, struct file *filp) {
 
     return 0;
 }
-static ssize_t hodo_read(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+static ssize_t hodo_read_dir(struct file *file, char __user *buf, size_t count, loff_t *pos) {
     ZONEFS_TRACE();
-    struct inode *inode = file_inode(file);
 
-    if (S_ISDIR(inode->i_mode))
-        return zonefs_dir_operations.read(file, buf, count, pos);
-
-    return zonefs_file_operations.read(file, buf, count, pos);
+    return zonefs_dir_operations.read(file, buf, count, pos);
 }
 
-static int hodo_release(struct inode *inode, struct file *filp) {
+static int hodo_file_release(struct inode *inode, struct file *filp) {
     ZONEFS_TRACE();
 
     struct dentry *dentry = filp->f_path.dentry;
@@ -53,51 +49,53 @@ static int hodo_release(struct inode *inode, struct file *filp) {
     return 0;
 }
 
-static int hodo_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
+static int hodo_file_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
     ZONEFS_TRACE();
     return zonefs_file_operations.fsync(filp, start, end, datasync);
 }
 
-static int hodo_mmap(struct file *filp, struct vm_area_struct *vma) {
+static int hodo_file_mmap(struct file *filp, struct vm_area_struct *vma) {
     ZONEFS_TRACE();
     return zonefs_file_operations.mmap(filp, vma);
 }
 
-static loff_t hodo_llseek(struct file *filp, loff_t offset, int whence) {
+static loff_t hodo_file_llseek(struct file *filp, loff_t offset, int whence) {
     ZONEFS_TRACE();
-    struct inode *inode = file_inode(filp);
-
-    if (S_ISDIR(inode->i_mode))
-        return zonefs_dir_operations.llseek(filp, offset, whence);
 
     return zonefs_file_operations.llseek(filp, offset, whence);
 }
 
-static ssize_t hodo_read_iter(struct kiocb *iocb, struct iov_iter *to)
+static loff_t hodo_dir_llseek(struct file *filp, loff_t offset, int whence) {
+    ZONEFS_TRACE();
+
+    return zonefs_dir_operations.llseek(filp, offset, whence);
+}
+
+static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	ZONEFS_TRACE();
 	return zonefs_file_operations.read_iter(iocb, to);
 }
 
 
-static ssize_t hodo_write_iter(struct kiocb *iocb, struct iov_iter *from) {
+static ssize_t hodo_file_write_iter(struct kiocb *iocb, struct iov_iter *from) {
     ZONEFS_TRACE();
     return zonefs_file_operations.write_iter(iocb, from);
 }
 
-static ssize_t hodo_splice_read(struct file *in, loff_t *ppos,
+static ssize_t hodo_file_splice_read(struct file *in, loff_t *ppos,
                                               struct pipe_inode_info *pipe, size_t len, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_file_operations.splice_read(in, ppos, pipe, len, flags);
 }
 
-static ssize_t hodo_splice_write(struct pipe_inode_info *pipe, struct file *out,
+static ssize_t hodo_file_splice_write(struct pipe_inode_info *pipe, struct file *out,
                                              loff_t *ppos, size_t len, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_file_operations.splice_write(pipe, out, ppos, len, flags);
 }
 
-static int hodo_iocb_bio_iopoll(struct kiocb *iocb, struct io_comp_batch *iob, unsigned int flags) {
+static int hodo_file_iocb_bio_iopoll(struct kiocb *iocb, struct io_comp_batch *iob, unsigned int flags) {
     ZONEFS_TRACE();
     return zonefs_file_operations.iopoll(iocb, iob, flags);
 }
@@ -108,28 +106,25 @@ static int hodo_readdir(struct file *file, struct dir_context *ctx) {
 }
 
 const struct file_operations hodo_file_operations = {
-    .open           = hodo_open,
-    .read           = hodo_read,
-    .release        = hodo_release,
-    .fsync          = hodo_fsync,
-    .mmap           = hodo_mmap,
-    .llseek         = hodo_llseek,
-    .read_iter      = hodo_read_iter,
-    .write_iter     = hodo_write_iter,
-    .splice_read    = hodo_splice_read,
-    .splice_write   = hodo_splice_write,
-    .iopoll         = hodo_iocb_bio_iopoll,
-    .iterate_shared = hodo_readdir,
+	.open		= hodo_file_open,
+	.release	= hodo_file_release,
+	.fsync		= hodo_file_fsync,
+	.mmap		= hodo_file_mmap,
+	.llseek		= hodo_file_llseek,
+	.read_iter	= hodo_file_read_iter,
+	.write_iter	= hodo_file_write_iter,
+	.splice_read	= hodo_file_splice_read,
+	.splice_write	= hodo_file_splice_write,
+	.iopoll		= hodo_file_iocb_bio_iopoll,
 };
 
+const struct file_operations hodo_dir_operations = {
+	.llseek		= hodo_dir_llseek,
+	.read		= hodo_read_dir,
+	.iterate_shared	= hodo_readdir,
+};
 
 // inode operations
-const struct inode_operations hodo_inode_operations = {
-    .lookup  = hodo_lookup,
-    .setattr = hodo_setattr,
-    .create = hodo_create,
-};
-
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
     ZONEFS_TRACE();
     return zonefs_dir_inode_operations.setattr(idmap, dentry, iattr);
@@ -188,7 +183,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
 
     inode->i_ino  = hinode.i_ino;
     inode->i_sb   = dir->i_sb;
-    inode->i_op   = &hodo_inode_operations;
+    inode->i_op   = &hodo_file_inode_operations;
     inode->i_fop  = &hodo_file_operations;
     inode->i_mode = S_IFREG | mode;
     inode->i_uid  = current_fsuid();
@@ -204,7 +199,15 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
     return 0;
 }
 
+const struct inode_operations hodo_file_inode_operations = {
+    .setattr = hodo_setattr,
+};
 
+const struct inode_operations hodo_dir_inode_operations = {
+    .lookup  = hodo_lookup,
+    .setattr = hodo_setattr,
+    .create = hodo_create,
+};
 
 // ---------- aops ----------
 static int hodo_read_folio(struct file *file, struct folio *folio) {

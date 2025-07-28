@@ -678,7 +678,7 @@ static struct inode *zonefs_get_file_inode(struct inode *dir,
         inode->i_blocks = z->z_capacity >> SECTOR_SHIFT;
         inode->i_private = z;
 
-        inode->i_op = &hodo_inode_operations;
+        inode->i_op = &hodo_file_inode_operations;
         inode->i_fop = &hodo_file_operations;
         inode->i_mapping->a_ops = &hodo_file_aops;
 
@@ -713,8 +713,8 @@ static struct inode *zonefs_get_zgroup_inode(struct super_block *sb,
         inode->i_private = &sbi->s_zgroup[ztype];
         set_nlink(inode, 2);
 
-        inode->i_op = &hodo_inode_operations;
-        inode->i_fop = &hodo_file_operations;
+        inode->i_op = &hodo_dir_inode_operations;
+        inode->i_fop = &hodo_dir_operations;
 
         unlock_new_inode(inode);
 
@@ -1335,8 +1335,8 @@ static int zonefs_fill_super(struct super_block *sb, void *data, int silent)
         inode->i_ino = bdev_nr_zones(sb->s_bdev);
         inode->i_mode = S_IFDIR | 0555;
         simple_inode_init_ts(inode);
-        inode->i_op = &hodo_inode_operations;
-        inode->i_fop = &hodo_file_operations;
+        inode->i_op = &hodo_dir_inode_operations;
+        inode->i_fop = &hodo_dir_operations;
         inode->i_size = 2;
         set_nlink(inode, 2);
         for (ztype = 0; ztype < ZONEFS_ZTYPE_MAX; ztype++) {
