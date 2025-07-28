@@ -26,6 +26,11 @@ struct hdmr_block_pos {
     uint64_t offset;
 };
 
+struct hdmr_datablock {
+    char magic[4];
+    char data[4092];
+};
+
 struct hdmr_inode {
     char magic[4];
     uint64_t file_len;
@@ -44,23 +49,18 @@ struct hdmr_inode {
     struct timespec64 i_mtime;
     struct timespec64 i_ctime;
 
-    struct hdmr_datablock_pos direct[10];
-    struct hdmr_datablock_pos single_indirect;
-    struct hdmr_datablock_pos double_indirect;
-    struct hdmr_datablock_pos triple_indirect;
-};
-
-struct hdmr_datablock {
-    char magic[4];
-    char data[4092];
+    struct hdmr_block_pos direct[10];
+    struct hdmr_block_pos single_indirect;
+    struct hdmr_block_pos double_indirect;
+    struct hdmr_block_pos triple_indirect;
 };
 
 struct hdmr_mapping_info {
-    struct hdmr_datablock_pos mapping_table[HDMR_MAX_INODE];
+    struct hdmr_block_pos mapping_table[HDMR_MAX_INODE];
     int starting_ino;
-    struct hdmr_datablock_pos wp;
+    struct hdmr_block_pos wp;
     uint32_t bitmap[HDMR_MAX_INODE / 32];
-} global_mapping_info;
+} mapping_info;
 
 struct hdmr_dentry {
     char name[HDMR_MAX_NAME_LEN];
@@ -69,37 +69,23 @@ struct hdmr_dentry {
 
 // ---------- hdmr_sub_function_interface ----------
 
-static struct dentry* hdmr_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags);
+static struct dentry* hdmr_sub_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags);
 
 // ---------- tool_function_interface ----------
 
-uint64_t find_inode_number(struct hdmr_inode* parent_hdmr_inode);
+uint64_t find_inode_number(struct hdmr_inode *parent_hdmr_inode, const char *target_name);
 
-uint64_t find_inode_number_in_direct_block(
-    const char* target_name,
-    hdmr_datablock* direct_block
+uint64_t find_inode_number_from_direct_block(
+    const char *target_name,
+    struct hdmr_datablock *direct_block
 );
 
-uint64_t find_inode_number_in_single_indirect_block(
-    const char* target_name,
-    hdmr_datablock* single_indirect_block,
-    hdmr_datablock* temp_direct_block
+uint64_t find_inode_number_from_indirect_block(
+    const char *target_name,
+    struct hdmr_datablock *indirect_block
 );
 
-uint64_t find_inode_number_in_double_indirect_block(
-    const char* target_name,
-    hdmr_datablock* double_indirect_block,
-    hdmr_datablock* temp_single_indirect_block,
-    hdmr_datablock* temp_direct_block
-);
-
-uint64_t find_inode_number_in_triple_indirect_block(
-    const char* target_name,
-    hdmr_datablock* triple_indirect_block,
-    hdmr_datablock* temp_double_indirect_block,
-    hdmr_datablock* temp_single_indirect_block,
-    hdmr_datablock* temp_direct_block
-);
+ssize_t hdmr_read_struct(struct hdmr_block_pos block_pos, char *out_buf, size_t len);
 
 // ---------- file_operations ----------
 static int hdmr_open(struct inode *inode, struct file *filp) {
@@ -189,14 +175,14 @@ static struct dentry *hdmr_lookup(struct inode *dir, struct dentry *dentry, unsi
     const char* name = dentry->d_name.name;
     const char* parent = dentry->d_parent->d_name.name;
 
-    //"seq", "cnv" ¶Ç´Â ±× ÇÏÀ§ µğ·ºÅä¸®´Â ±âÁ¸ zonefs lookup »ç¿ë
+    //seq, cnv ë˜ëŠ” ê·¸ í•˜ìœ„ ë””ë ‰í† ë¦¬ëŠ” ê¸°ì¡´ zonefs lookup ì‚¬ìš©
     if (!strcmp(name, "seq") || !strcmp(name, "cnv") ||
         !strcmp(parent, "seq") || !strcmp(parent, "cnv")) {
         pr_info("zonefs: using original lookup for '%s' (parent: %s)\n", name, parent);
         return zonefs_dir_inode_operations.lookup(dir, dentry, flags);
     }
 
-    //±× ¿Ü´Â ¿ì¸®°¡ Á¤ÀÇÇÑ hdmr sub lookup »ç¿ë
+    //ê·¸ ì™¸ëŠ” ìš°ë¦¬ê°€ ì •ì˜í•œ hdmr sub lookup ì‚¬ìš©
     pr_info("zonefs: using custom lookup for '%s' (parent: %s)\n", name, parent);
     return hdmr_sub_lookup(dir, dentry, flags);
 }
@@ -204,7 +190,6 @@ static struct dentry *hdmr_lookup(struct inode *dir, struct dentry *dentry, unsi
 const struct inode_operations hdmr_inode_operations = {
     .lookup  = hdmr_lookup,
     .setattr = hdmr_setattr,
-    .create = hdmr_create,
 };
 
 // ---------- aops ----------
@@ -276,59 +261,63 @@ const struct address_space_operations hdmr_file_aops = {
 
 // ---------- hdmr_sub_function_implementaion ----------
 
-static struct dentry* hdmr_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags) {
+static struct dentry *hdmr_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags) {
     ZONEFS_TRACE();
 
-    const char* name = dentry->d_name.name;
-    const char* parent = dentry->d_parent->d_name.name;
+    const char *name = dentry->d_name.name;
+    const char *parent = dentry->d_parent->d_name.name;
 
-    //ºÎ¸ğ µğ·ºÅä¸®ÀÇ hdmr ¾ÆÀÌ³ëµå¸¦ ÀĞ¾î¿Â´Ù
+    //ë¶€ëª¨ ë””ë ‰í† ë¦¬ì˜ hdmr ì•„ì´ë…¸ë“œë¥¼ ì½ì–´ì˜¨ë‹¤
     uint64_t parent_hdmr_inode_number = dir->i_ino;
-    struct hdmr_block_pos parent_hdmr_inode_pos = global_mapping_info.mapping_table[parent_hdmr_inode_number - global_mapping_info.starting_ino];
-    struct hdmr_inode parent_hdmr_inode = { 0, } //TODO : ÀúÀåÀåÄ¡ÀÇ parent_hdmr_inode_pos À§Ä¡·ÎºÎÅÍ ¾ÆÀÌ³ëµå ÀĞ¾î¿À±â
+    struct hdmr_block_pos parent_hdmr_inode_pos = mapping_info.mapping_table[parent_hdmr_inode_number - mapping_info.starting_ino];
+    struct hdmr_inode parent_hdmr_inode = { 0, };
+    hdmr_read_struct(parent_hdmr_inode_pos, (char*)&parent_hdmr_inode, sizeof(struct hdmr_inode));
 
-        //Ã£°íÀÚ ÇÏ´Â ÀÌ¸§À» °¡Áø hdmr ¾ÆÀÌ³ëµå¸¦ ÀĞ¾î¿Â´Ù
-    uint64_t target_hdmr_inode_number = find_inode_number(&parent_hdmr_inode);
-    struct hdmr_block_pos target_hdmr_inode_pos = global_mapping_info.mapping_table[target_hdmr_inode_number - global_mapping_info.starting_ino];
-    struct hdmr_inode target_hdmr_inode = { 0, }; //TODO : ÀúÀåÀåÄ¡ÀÇ target_hdmr_inode_pos À§Ä¡·ÎºÎÅÍ ¾ÆÀÌ³ëµå ÀĞ¾î¿À±â
+    //ì°¾ê³ ì í•˜ëŠ” ì´ë¦„ì„ ê°€ì§„ hdmr ì•„ì´ë…¸ë“œë¥¼ ì½ì–´ì˜¨ë‹¤
+    uint64_t target_hdmr_inode_number = find_inode_number(&parent_hdmr_inode, name);
+    struct hdmr_block_pos target_hdmr_inode_pos = mapping_info.mapping_table[target_hdmr_inode_number - mapping_info.starting_ino];
+    struct hdmr_inode target_hdmr_inode = { 0, };
+    hdmr_read_struct(target_hdmr_inode_pos, (char*)&target_hdmr_inode, sizeof(struct hdmr_inode));
 
-    //±¸ÇÑ hdmr ¾ÆÀÌ³ëµå Á¤º¸¸¦ ÅëÇØ VFS ¾ÆÀÌ³ëµå¸¦ ±¸¼ºÇÏÀÚ
-    struct inode* vfs_inode = new_inode(dir->i_sb);
+    //êµ¬í•œ hdmr ì•„ì´ë…¸ë“œ ì •ë³´ë¥¼ í†µí•´ VFS ì•„ì´ë…¸ë“œë¥¼ êµ¬ì„±í•˜ì
+    struct inode *vfs_inode = new_inode(dir->i_sb);
     if (!vfs_inode)
         return ERR_PTR(-ENOMEM);
 
-    vfs_inode->i_ino = target_inode.i_ino;
+    vfs_inode->i_ino = target_hdmr_inode.i_ino;
     vfs_inode->i_sb = dir->i_sb;
     vfs_inode->i_op = &hdmr_inode_operations;
-    inode->i_fop = &hdmr_file_operations;
-    inode->i_mode = target_inode.i_mode;
-    inode->i_uid = target_inode.i_uid;
-    inode->i_gid = target_inode.i_gid;
+    vfs_inode->i_fop = &hdmr_file_operations;
+    vfs_inode->i_mode = target_hdmr_inode.i_mode;
+    vfs_inode->i_uid = target_hdmr_inode.i_uid;
+    vfs_inode->i_gid = target_hdmr_inode.i_gid;
 
-    inode_set_ctime_to_ts(inode, target_Inode.i_ctime);
-    inode_set_mtime_to_ts(inode, target_inode.i_mtime);
-    inode_set_atime_to_ts(inode, target_inode.i_atime);
+    inode_set_ctime_to_ts(vfs_inode, target_hdmr_inode.i_ctime);
+    inode_set_mtime_to_ts(vfs_inode, target_hdmr_inode.i_mtime);
+    inode_set_atime_to_ts(vfs_inode, target_hdmr_inode.i_atime);
 
-    //Ã£°íÀÚ Çß´ø VFS ¾ÆÀÌ³ëµåÀ» VFS µ§Æ®¸®¿¡ ÀÌ¾îÁÖÀÚ
+    //ì°¾ê³ ì í–ˆë˜ VFS ì•„ì´ë…¸ë“œë¥¼ VFS ë´íŠ¸ë¦¬ì— ì´ì–´ì£¼ì
     d_add(dentry, vfs_inode);
     return dentry;
 }
 
 // ---------- tool_function_implementation ----------
 
-uint64_t find_inode_number(struct hdmr_inode* parent_hdmr_inode, const char* target_name) {
-    //direct data blockµé¿¡¼­ Æ¯Á¤ ÀÌ¸§ÀÇ dentry Ã£¾Æº¸±â
+uint64_t find_inode_number(struct hdmr_inode *parent_hdmr_inode, const char *target_name) {
+    uint64_t result = 0;
+    
+    //direct data blockë“¤ì—ì„œ íŠ¹ì • ì´ë¦„ì˜ hdmr dentryë¥¼ ì°¾ì•„ë³´ê¸°
     struct hdmr_block_pos direct_block_pos = { 0, 0 };
-    struct hdmr_datablock* direct_block = kmalloc(4096, GFP_KERNEL);   //mallocÀº »ç¿ëÀÚ °ø°£¿¡¼­¸¸ »ç¿ë°¡´ÉÇÏ¹Ç·Î, ¿©±â¼± Ä¿³Î¿ëÀÎ kmallocÀ» ½è´Ù
+    struct hdmr_datablock *direct_block = kmalloc(4096, GFP_KERNEL);   //mallocì€ ì‚¬ìš©ì ê³µê°„ì—ì„œë§Œ ì‚¬ìš©ê°€ëŠ¥í•˜ë¯€ë¡œ, ì—¬ê¸°ì„  ì»¤ë„ìš©ì¸ kmallocì„ ì¼ë‹¤.
 
-    if (temp_direct_block == nullptr)
-        r_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+    if (direct_block == NULL)
+        pr_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     for (int i = 0; i < 10; i++) {
         direct_block_pos = parent_hdmr_inode->direct[i];
-        direct_block;      //TODO : ÀúÀåÀåÄ¡ÀÇ direct_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» direct_blockÀ¸·Î ÀĞ¾î¿À±â
+        hdmr_read_struct(direct_block_pos, (char*)direct_block, 4096);
 
-        uint64_t result = find_inode_number_in_direct_block(target_name, direct_block);
+        result = find_inode_number_from_direct_block(target_name, direct_block);
 
         if (result != 0) {
             kfree(direct_block);
@@ -336,146 +325,155 @@ uint64_t find_inode_number(struct hdmr_inode* parent_hdmr_inode, const char* tar
         }
     }
 
-    //single indirect data block¿¡¼­ Æ¯Á¤ ÀÌ¸§ÀÇ dentry Ã£¾Æº¸±â
-    struct hdmr_block_pos single_indirect_block_pos = { 0, 0 };
-    struct hdmr_datablock* single_indirect_block = kmalloc(4096, GFP_KERNEL);
+    kfree(direct_block);
 
-    if (single_indirect_block == nullptr)
-        r_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+    //single indirect data blockì—ì„œ íŠ¹ì • ì´ë¦„ì˜ hdmr dentryë¥¼ ì°¾ì•„ë³´ê¸°
+    struct hdmr_block_pos single_indirect_block_pos = { 0, 0 };
+    struct hdmr_datablock *single_indirect_block = kmalloc(4096, GFP_KERNEL);
+
+    if (single_indirect_block == NULL)
+        pr_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     single_indirect_block_pos = parent_hdmr_inode->single_indirect;
-    single_indirect_block; //TODO : ÀúÀåÀåÄ¡ÀÇ single_indirect_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» single_indirect_blockÀ¸·Î ÀĞ¾î¿À±â
+    hdmr_read_struct(single_indirect_block_pos, (char*)single_indirect_block, 4096);
 
-    uint64_t result = find_inode_number_in_single_indirect_block(target_name, single_indirect_block, direct_block);
+    result = find_inode_number_from_indirect_block(target_name, single_indirect_block);
 
-    if (result != 0) {
-        kfree(single_indirect_block);
-        kfree(direct_block);
+    kfree(single_indirect_block);
+
+    if (result != 0)
         return result;
-    }
 
-    //double indirect data block¿¡¼­ Æ¯Á¤ ÀÌ¸§ÀÇ dentry Ã£¾Æº¸±â
+
+    //double indirect data blockì—ì„œ íŠ¹ì • ì´ë¦„ì˜ hdmr dentryë¥¼ ì°¾ì•„ë³´ê¸°
     struct hdmr_block_pos double_indirect_block_pos = { 0, 0 };
-    struct hdmr_datablock* double_indirect_block = kmalloc(4096, GFP_KERNEL);
+    struct hdmr_datablock *double_indirect_block = kmalloc(4096, GFP_KERNEL);
 
-    if (double_indirect_block == nullptr)
-        r_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+    if (double_indirect_block == NULL)
+        pr_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     double_indirect_block_pos = parent_hdmr_inode->double_indirect;
-    double_indirect_block; //TODO : ÀúÀåÀåÄ¡ÀÇ double_indirect_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» double_indirect_blockÀ¸·Î ÀĞ¾î¿À±â
+    hdmr_read_struct(double_indirect_block_pos, (char*)double_indirect_block, 4096);
 
-    uint64_t result = find_inode_number_in_double_indirect_block(target_name, double_indirect_block, single_indirect_block, direct_block);
+    result = find_inode_number_from_indirect_block(target_name, double_indirect_block);
 
-    if (result != 0) {
-        kfree(double_indirect_block);
-        kfree(single_indirect_block);
-        kfree(direct_block);
+    kfree(double_indirect_block);
+
+    if (result != 0) 
         return result;
-    }
 
-    //triple indirect data block¿¡¼­ Æ¯Á¤ ÀÌ¸§ÀÇ dentry Ã£¾Æº¸±â
+
+    //triple indirect data blockì—ì„œ íŠ¹ì • ì´ë¦„ì˜ hdmr dentryë¥¼ ì°¾ì•„ë³´ê¸°
     struct hdmr_block_pos triple_indirect_block_pos = { 0, 0 };
     struct hdmr_datablock* triple_indirect_block = kmalloc(4096, GFP_KERNEL);
 
-    if (triple_indirect_block == nullptr)
-        r_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+    if (triple_indirect_block == NULL)
+        pr_info("zonefs: (error in hdmr_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     triple_indirect_block_pos = parent_hdmr_inode->triple_indirect;
-    triple_indirect_block; //TODO : ÀúÀåÀåÄ¡ÀÇ triple_indirect_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» triple_indirect_blockÀ¸·Î ÀĞ¾î¿À±â
+    hdmr_read_struct(triple_indirect_block_pos, (char*)triple_indirect_block, 4096);
 
-    uint64_t result = find_inode_number_in_triple_indirect_block(target_name, triple_indirect_block, double_indirect_block, single_indirect_block, direct_block);
+    result = find_inode_number_from_indirect_block(target_name, triple_indirect_block);
 
-    if (result != 0) {
-        kfree(triple_indirect_block);
-        kfree(double_indirect_block);
-        kfree(single_indirect_block);
-        kfree(direct_block);
-        return result;
-    }
-
-
-    //ÀüºÎ¸¦ µÚÁ®º¸°íµµ ¸ø Ã£¾ÒÀº °æ¿ì
     kfree(triple_indirect_block);
-    kfree(double_indirect_block);
-    kfree(single_indirect_block);
-    kfree(direct_block);
+
+    if (result != 0)
+        return result;
+
+    //ëª¨ë‘ ë‹¤ ë’¤ì ¸ë³´ì•˜ì§€ë§Œ ì°¾ëŠ”ë° ì‹¤íŒ¨í•œ ê²½ìš°
     return 0;
 }
 
-uint64_t find_inode_number_in_direct_block(
-    const char* target_name,
-    hdmr_datablock* direct_block
+uint64_t find_inode_number_from_direct_block(
+    const char *target_name,
+    struct hdmr_datablock* direct_block
 ) {
-    for (int j = 4; j < 4096; j += sizeof(struct hdmr_dentry)) {
+    for (int j = 4; j < 4096 - sizeof(struct hdmr_dentry); j += sizeof(struct hdmr_dentry)) {
         struct hdmr_dentry temp_dentry;
         memcpy(&temp_dentry, direct_block + j, sizeof(struct hdmr_dentry));
 
-        if (memcmp(temp_dentry.name, name, HDMR_MAX_NAME_LEN))
+        if (memcmp(temp_dentry.name, target_name, HDMR_MAX_NAME_LEN))
             return temp_dentry.i_ino;
     }
 
     return 0;
 }
 
-uint64_t find_inode_number_in_single_indirect_block(
-    const char* target_name,
-    hdmr_datablock* single_indirect_block,
-    hdmr_datablock* temp_direct_block
+uint64_t find_inode_number_from_indirect_block(
+    const char *target_name,
+    struct hdmr_datablock *indirect_block
 ) {
-    for (int j = 4; j < 4096; j += sizeof(struct hdmr_block_pos)) {
-        struct hdmr_block_pos temp_direct_block_pos;
-        memcpy(&temp_direct_block_pos, single_indirect_block + j, sizeof(struct hdmr_block_pos));
+    struct hdmr_block_pos temp_block_pos;
+    struct hdmr_datablock *temp_block = kmalloc(4096, GFP_KERNEL);
+    for (int j = 4; j < 4096 - sizeof(struct hdmr_block_pos); j += sizeof(struct hdmr_block_pos)) {
+        memcpy(&temp_block_pos, indirect_block + j, sizeof(struct hdmr_block_pos));
+        hdmr_read_struct(temp_block_pos, (char*)temp_block, 4096);
 
-        temp_direct_block; //TODO : ÀúÀåÀåÄ¡ÀÇ temp_direct_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» temp_direct_blockÀ¸·Î ÀĞ¾î¿À±â
+        uint64_t result = 0;
 
-        uint64_t result = find_inode_number_in_direct_block(target_name, temp_direct_block);
+        if(indirect_block->magic[3] == '1')
+            result = find_inode_number_from_direct_block(target_name, temp_block);
 
-        if (result != 0)
+        else 
+            result = find_inode_number_from_indirect_block(target_name, temp_block);
+
+        if (result != 0){
+            kfree(temp_block);
             return result;
+        }
     }
 
+    kfree(temp_block);
     return 0;
 }
 
-uint64_t find_inode_number_in_double_indirect_block(
-    const char* target_name,
-    hdmr_datablock* double_indirect_block,
-    hdmr_datablock* temp_single_indirect_block,
-    hdmr_datablock* temp_direct_block
-) {
-    for (int j = 4; j < 4096; j += sizeof(struct hdmr_block_pos)) {
-        struct hdmr_block_pos temp_single_indirect_block_pos;
-        memcpy(&temp_single_indirect_block_pos, double_indirect_block + j, sizeof(struct hdmr_block_pos));
+ssize_t hdmr_read_struct(struct hdmr_block_pos block_pos, char *out_buf, size_t len)
+{
+    ZONEFS_TRACE();
 
-        temp_single_indirect_block; //TODO : ÀúÀåÀåÄ¡ÀÇ temp_single_indirect_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» temp_single_indirect_blockÀ¸·Î ÀĞ¾î¿À±â
+    uint32_t zone_id = block_pos.zone_id;
+    uint64_t offset = block_pos.offset;
 
-        uint64_t result = find_inode_number_in_single_indirect_block(target_name, temp_single_indirect_block, temp_direct_block);
+    //ì½ì„ ì–‘ì€ ì„¹í„°(512Bytes) ë‹¨ìœ„ì—¬ì•¼ í•˜ê³ , í•˜ë‚˜ì˜ í•˜ë‚˜ì˜ ë¸”ëŸ­ ì´ë‚´ì˜ í¬ê¸°ì—¬ì•¼ í•œë‹¤.
+    if (!out_buf || len == 0 || len > 4096 || (len % 512 != 0))
+        return -EINVAL;
 
-        if (result != 0)
-            return result;
+    //seq íŒŒì¼ì„ ì—´ê¸° ìœ„í•´ ê²½ë¡œ ì´ë¦„(path) ë§Œë“¤ê¸°
+    const char path_up[16] = "/mnt/seq/";
+    char path_down[6] = {0, };
+    snprintf(path_down, sizeof(path_down), "%d", zone_id);
+    const char *path = strncat(path_up, path_down, 6);
+
+    struct file *zone_file;
+    struct kiocb kiocb;
+    struct iov_iter iter;
+    struct kvec kvec;
+    ssize_t ret;
+
+    //íŒŒì¼ ì—´ê¸°
+    zone_file = filp_open(path, O_RDONLY | O_LARGEFILE, 0);
+    if (IS_ERR(zone_file)) {
+        pr_err("zonefs: filp_open(%s) failed\n", path);
+        return PTR_ERR(zone_file);
     }
 
-    return 0;
-}
+    //iov_iter êµ¬ì„±(ì½ì„ ë²„í¼ë“¤ ì—¬ëŸ¬ê°œì™€ ì½ê¸° ì—°ì‚° ë“±ì„ ë¬¶ì€ êµ¬ì¡°ì²´)
+    kvec.iov_base = out_buf;
+    kvec.iov_len = len;
+    iov_iter_kvec(&iter, ITER_DEST, &kvec, 1, len);
 
-uint64_t find_inode_number_in_triple_indirect_block(
-    const char* target_name,
-    hdmr_datablock* triple_indirect_block,
-    hdmr_datablock* temp_double_indirect_block,
-    hdmr_datablock* temp_single_indirect_block,
-    hdmr_datablock* temp_direct_block
-) {
-    for (int j = 4; j < 4096; j += sizeof(struct hdmr_block_pos)) {
-        struct hdmr_block_pos temp_double_indirect_block_pos;
-        memcpy(&temp_double_indirect_block_pos, triple_indirect_block + j, sizeof(struct hdmr_block_pos));
+    //kiocb êµ¬ì„±(ì½ê¸° ìš”ì²­ì˜ ì»¨í…ìŠ¤íŠ¸ ì •ë³´)
+    init_sync_kiocb(&kiocb, zone_file);
+    kiocb.ki_pos = offset;
 
-        temp_double_indirect_block; //TODO : ÀúÀåÀåÄ¡ÀÇ temp_double_indirect_block_posÀ¸·ÎºÎÅÍ 4KBÀÇ ±¸°£À» temp_double_indirect_blockÀ¸·Î ÀĞ¾î¿À±â
-
-        uint64_t result = find_inode_number_in_double_indirect_block(target_name, temp_double_indirect_block, temp_single_indirect_block, temp_direct_block);
-
-        if (result != 0)
-            return result;
+    //ìœ„ ë‘ ì •ë³´ë¥¼ ê°€ì§€ê³  read_iter ì‹¤í–‰
+    if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
+         pr_err("zonefs: read_iter not available on file\n");
+        ret = -EINVAL;
     }
 
-    return 0;
+    ret = zone_file->f_op->read_iter(&kiocb, &iter);
+
+    filp_close(zone_file, NULL);
+    return ret;
 }
