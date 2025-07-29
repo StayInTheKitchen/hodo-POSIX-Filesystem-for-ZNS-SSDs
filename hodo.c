@@ -159,6 +159,8 @@ static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct i
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
     ZONEFS_TRACE();
 
+    pr_info("zonefs : sizeof(struct hodo_datablock) = %d\n", sizeof(struct hodo_datablock));
+    pr_info("zonefs : sizeof(struct hodo_inode) = %d\n", sizeof(struct hodo_inode));
     const char* name = dentry->d_name.name;
     const char* parent = dentry->d_parent->d_name.name;
 
@@ -325,6 +327,8 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
 
     //부모 디렉토리의 hodo 아이노드를 읽어온다
     uint64_t parent_hodo_inode_number = dir->i_ino;
+    if(dir == dentry->d_sb->s_root->d_inode)    //루트 노드의 hodo 아이노드 상의 번호는 vfs 아이노드 상의 번호와 달리 0번이니 조작한다 
+        parent_hodo_inode_number = 0;
     struct hodo_block_pos parent_hodo_inode_pos = mapping_info.mapping_table[parent_hodo_inode_number - mapping_info.starting_ino];
     struct hodo_inode parent_hodo_inode = { 0, };
     hodo_read_struct(parent_hodo_inode_pos, (char*)&parent_hodo_inode, sizeof(struct hodo_inode));
@@ -335,7 +339,13 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
     struct hodo_inode target_hodo_inode = { 0, };
     hodo_read_struct(target_hodo_inode_pos, (char*)&target_hodo_inode, sizeof(struct hodo_inode));
 
-    //구한 hodo 아이노드 정보를 통해 VFS 아이노드를 구성하자
+    //해당 이름의 아이노드가 저장장치에 없다면, 그냥 없다고 보고하자
+    if(target_hodo_inode_number == 0){
+        d_add(dentry, NULL);
+        return dentry;
+    }
+
+    //찾던 이름의 hodo 아이노드 정보를 통해 VFS 아이노드를 구성하자
     struct inode *vfs_inode = new_inode(dir->i_sb);
     if (!vfs_inode)
         return ERR_PTR(-ENOMEM);
@@ -359,82 +369,85 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
 
 uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *target_name) {
     uint64_t result = 0;
-    
+    struct hodo_datablock *buf_block = kmalloc(4096, GFP_KERNEL);   //malloc은 사용자 공간에서만 사용가능하므로, 여기선 커널용인 kmalloc을 썼다.
+
+    if (buf_block == NULL) {
+        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+        return 0;
+    }
+
     //direct data block들에서 특정 이름의 hodo dentry를 찾아보기
     struct hodo_block_pos direct_block_pos = { 0, 0 };
-    struct hodo_datablock *direct_block = kmalloc(4096, GFP_KERNEL);   //malloc은 사용자 공간에서만 사용가능하므로, 여기선 커널용인 kmalloc을 썼다.
-
-    if (direct_block == NULL)
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     for (int i = 0; i < 10; i++) {
         direct_block_pos = parent_hodo_inode->direct[i];
-        hodo_read_struct(direct_block_pos, (char*)direct_block, 4096);
+        
+        if(direct_block_pos.zone_id == 0 && direct_block_pos.offset == 0)  
+            continue;
 
-        result = find_inode_number_from_direct_block(target_name, direct_block);
+        hodo_read_struct(direct_block_pos, (char*)buf_block, 4096);
+
+        result = find_inode_number_from_direct_block(target_name, buf_block);
 
         if (result != 0) {
-            kfree(direct_block);
+            kfree(buf_block);
             return result;
         }
     }
 
-    kfree(direct_block);
-
     //single indirect data block에서 특정 이름의 hodo dentry를 찾아보기
     struct hodo_block_pos single_indirect_block_pos = { 0, 0 };
-    struct hodo_datablock *single_indirect_block = kmalloc(4096, GFP_KERNEL);
-
-    if (single_indirect_block == NULL)
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     single_indirect_block_pos = parent_hodo_inode->single_indirect;
-    hodo_read_struct(single_indirect_block_pos, (char*)single_indirect_block, 4096);
 
-    result = find_inode_number_from_indirect_block(target_name, single_indirect_block);
+    if(single_indirect_block_pos.zone_id == 0 && single_indirect_block_pos.offset == 0) {}//볼 것 없으니 패스
+    else {
+        hodo_read_struct(single_indirect_block_pos, (char*)buf_block, 4096);
 
-    kfree(single_indirect_block);
+        result = find_inode_number_from_indirect_block(target_name, buf_block);
 
-    if (result != 0)
-        return result;
-
+        if (result != 0) {
+            kfree(buf_block);
+            return result;
+        }
+    }
 
     //double indirect data block에서 특정 이름의 hodo dentry를 찾아보기
     struct hodo_block_pos double_indirect_block_pos = { 0, 0 };
-    struct hodo_datablock *double_indirect_block = kmalloc(4096, GFP_KERNEL);
-
-    if (double_indirect_block == NULL)
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     double_indirect_block_pos = parent_hodo_inode->double_indirect;
-    hodo_read_struct(double_indirect_block_pos, (char*)double_indirect_block, 4096);
 
-    result = find_inode_number_from_indirect_block(target_name, double_indirect_block);
+    if(double_indirect_block_pos.zone_id == 0 && double_indirect_block_pos.offset == 0) {}//볼 것 없으니 패스
+    else {
+        hodo_read_struct(double_indirect_block_pos, (char*)buf_block, 4096);
 
-    kfree(double_indirect_block);
+        result = find_inode_number_from_indirect_block(target_name, buf_block);
 
-    if (result != 0) 
-        return result;
-
+        if (result != 0) {
+            kfree(buf_block);
+            return result;
+        }
+    }
 
     //triple indirect data block에서 특정 이름의 hodo dentry를 찾아보기
     struct hodo_block_pos triple_indirect_block_pos = { 0, 0 };
-    struct hodo_datablock* triple_indirect_block = kmalloc(4096, GFP_KERNEL);
-
-    if (triple_indirect_block == NULL)
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
 
     triple_indirect_block_pos = parent_hodo_inode->triple_indirect;
-    hodo_read_struct(triple_indirect_block_pos, (char*)triple_indirect_block, 4096);
 
-    result = find_inode_number_from_indirect_block(target_name, triple_indirect_block);
+    if(triple_indirect_block_pos.zone_id == 0 && triple_indirect_block_pos.offset == 0) {}//볼 것 없으니 패스
+    else {
+        hodo_read_struct(triple_indirect_block_pos, (char*)buf_block, 4096);
 
-    kfree(triple_indirect_block);
+        result = find_inode_number_from_indirect_block(target_name, buf_block);
 
-    if (result != 0)
-        return result;
+        if (result != 0) {
+            kfree(buf_block);
+            return result;
+        }
+    }
 
     //모두 다 뒤져보았지만 찾는데 실패한 경우
+    kfree(buf_block);
     return 0;
 }
 
@@ -488,8 +501,8 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, char *out_buf, size_t 
     uint32_t zone_id = block_pos.zone_id;
     uint64_t offset = block_pos.offset;
 
-    //읽을 양은 섹터(512Bytes) 단위여야 하고, 하나의 하나의 블럭 이내의 크기여야 한다.
-    if (!out_buf || len == 0 || len > 4096 || (len % 512 != 0))
+    //우리가 읽고 싶은 양은 0~4096 Byte의 범위안에서 512 Byte의 배수여야 한다
+    if (!out_buf || len == 0 || len > 4096 || len % 512 == 0)
         return -EINVAL;
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기
@@ -522,8 +535,9 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, char *out_buf, size_t 
 
     //위 두 정보를 가지고 read_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
-         pr_err("zonefs: read_iter not available on file\n");
+        pr_err("zonefs: read_iter not available on file\n");
         ret = -EINVAL;
+        return ret;
     }
 
     ret = zone_file->f_op->read_iter(&kiocb, &iter);
