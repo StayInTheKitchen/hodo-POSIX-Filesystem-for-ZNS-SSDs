@@ -1,3 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Simple zone file system for zoned block devices.
+ *
+ * Copyright (C) 2019 Western Digital Corporation or its affiliates.
+ *
+ * Added POSIX features to original zonefs.
+ *
+ * Copyright (C) 2025 StayInTheKitchen, Antler9000
+ */
+
 #ifndef __HODO_H__
 #define __HODO_H__
 
@@ -48,6 +59,11 @@ struct hodo_mapping_info {
 };
 
 extern struct hodo_mapping_info mapping_info;
+
+struct hodo_dentry {
+    char name[HODO_MAX_NAME_LEN];
+    uint64_t i_ino;
+};
 
 // prototype: hodo filesystem initialization
 void hodo_init(void);

@@ -3,7 +3,12 @@
  * Simple zone file system for zoned block devices.
  *
  * Copyright (C) 2019 Western Digital Corporation or its affiliates.
+ * 
+ * Added POSIX features to original zonefs.
+ * 
+ * Copyright (C) 2025 StayInTheKitchen, Antler9000
  */
+
 #ifndef __ZONEFS_H__
 #define __ZONEFS_H__
 

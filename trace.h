@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * zonefs filesystem driver tracepoints.
+ * Simple zone file system for zoned block devices.
  *
- * Copyright (C) 2021 Western Digital Corporation or its affiliates.
+ * Copyright (C) 2019 Western Digital Corporation or its affiliates.
+ *
+ * Added POSIX features to original zonefs.
+ *
+ * Copyright (C) 2025 StayInTheKitchen, Antler9000
  */
 
 #undef TRACE_SYSTEM

@@ -1,9 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Simple file system for zoned block devices exposing zones as files.
+ * Simple zone file system for zoned block devices.
  *
- * Copyright (C) 2022 Western Digital Corporation or its affiliates.
+ * Copyright (C) 2019 Western Digital Corporation or its affiliates.
+ *
+ * Added POSIX features to original zonefs.
+ *
+ * Copyright (C) 2025 StayInTheKitchen, Antler9000
  */
+
 #include <linux/fs.h>
 #include <linux/seq_file.h>
 #include <linux/blkdev.h>
