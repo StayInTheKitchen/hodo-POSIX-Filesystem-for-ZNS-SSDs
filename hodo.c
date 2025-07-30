@@ -56,7 +56,8 @@ void hodo_init() {
         mapping_info.wp.offset = 0;
 
         // 시작 inode number는 1000
-        mapping_info.starting_ino = 1000; 
+        mapping_info.starting_ino = hodo_nr_zones;
+        pr_info("zonefs: starting_ino: %d\n", mapping_info.starting_ino);
 
         // root direcotry inode 설정
         struct hodo_inode root_inode;
