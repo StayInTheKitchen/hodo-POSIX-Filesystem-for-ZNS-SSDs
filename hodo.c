@@ -28,6 +28,7 @@ struct hodo_mapping_info mapping_info;
 
 // prototype : tool function
 static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags);
+static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
 uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *target_name);
 uint64_t find_inode_number_from_direct_block(
     const char *target_name,
@@ -201,7 +202,17 @@ const struct file_operations hodo_dir_operations = {
 // inode operations------------------------------------------------------------------------------------------------------
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
     ZONEFS_TRACE();
-    return zonefs_dir_inode_operations.setattr(idmap, dentry, iattr);
+
+    const char *name = dentry->d_name.name;
+    const char *parent = dentry->d_parent->d_name.name;
+
+    if (!strcmp(name, "seq") || !strcmp(name, "cnv") ||
+        !strcmp(parent, "seq") || !strcmp(parent, "cnv")) {
+        pr_info("zonefs: using original setattr for '%s' (parent: %s)\n", name, parent);
+        return zonefs_dir_inode_operations.setattr(idmap, dentry, iattr);
+    }
+
+    return hodo_sub_setattr(idmap, dentry, iattr);
 }
 
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
@@ -390,14 +401,18 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
 
     //부모 디렉토리의 hodo 아이노드를 읽어온다
     uint64_t parent_hodo_inode_number = dir->i_ino;
-    if(dir == dentry->d_sb->s_root->d_inode)    //루트 노드의 hodo 아이노드 상의 번호는 vfs 아이노드 상의 번호와 달리 0번이니 조작한다 
-        parent_hodo_inode_number = 0;
+    // if(dir == dentry->d_sb->s_root->d_inode)    //루트 노드의 hodo 아이노드 상의 번호는 vfs 아이노드 상의 번호와 달리 0번이니 조작한다 
+    //     parent_hodo_inode_number = 0;
     struct hodo_block_pos parent_hodo_inode_pos = mapping_info.mapping_table[parent_hodo_inode_number - mapping_info.starting_ino];
     struct hodo_inode parent_hodo_inode = { 0, };
     hodo_read_struct(parent_hodo_inode_pos, (char*)&parent_hodo_inode, sizeof(struct hodo_inode));
 
     //찾고자 하는 이름을 가진 hodo 아이노드를 읽어온다
     uint64_t target_hodo_inode_number = find_inode_number(&parent_hodo_inode, name);
+    if (target_hodo_inode_number == 0) {
+        d_add(dentry, NULL);
+        return dentry;
+    }
     struct hodo_block_pos target_hodo_inode_pos = mapping_info.mapping_table[target_hodo_inode_number - mapping_info.starting_ino];
     struct hodo_inode target_hodo_inode = { 0, };
     hodo_read_struct(target_hodo_inode_pos, (char*)&target_hodo_inode, sizeof(struct hodo_inode));
@@ -725,4 +740,43 @@ ssize_t hodo_read_on_disk_mapping_info(void)
 
     filp_close(zone_file, NULL);
     return ret;
+}
+
+static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
+    ZONEFS_TRACE();
+
+	struct inode *inode = d_inode(dentry);
+	int ret;
+
+	if (unlikely(IS_IMMUTABLE(inode)))
+		return -EPERM;
+
+	ret = setattr_prepare(&nop_mnt_idmap, dentry, iattr);
+    if (ret) {
+    	if (d_inode(dentry) == dentry->d_sb->s_root->d_inode) {
+	    	pr_info("zonefs: ignoring setattr_prepare failure on root\n");
+	    } else {
+		    return ret;
+	    }
+    }
+
+
+	if (((iattr->ia_valid & ATTR_UID) &&
+	     !uid_eq(iattr->ia_uid, inode->i_uid)) ||
+	    ((iattr->ia_valid & ATTR_GID) &&
+	     !gid_eq(iattr->ia_gid, inode->i_gid))) {
+		ret = dquot_transfer(&nop_mnt_idmap, inode, iattr);
+		if (ret)
+			return ret;
+	}
+
+	if (iattr->ia_valid & ATTR_SIZE) {
+		ret = zonefs_file_truncate(inode, iattr->ia_size);
+		if (ret)
+			return ret;
+	}
+
+	setattr_copy(&nop_mnt_idmap, inode, iattr);
+
+	return 0;
 }
