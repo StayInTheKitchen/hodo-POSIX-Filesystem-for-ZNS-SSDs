@@ -27,12 +27,16 @@
 #include <linux/sched/mm.h>
 #include <linux/crc32.h>
 #include <linux/task_io_accounting_ops.h>
+#include <linux/delay.h>
 
 #include "zonefs.h"
 #include "hodo.h"
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
+
+int hodo_nr_zones = 0;
+int hodo_zone_size = 0;
 
 /*
  * Get the name of a zone group directory.
@@ -922,6 +926,7 @@ static int zonefs_get_zone_info_cb(struct blk_zone *zone, unsigned int idx,
 
         memcpy(&zd->zones[idx], zone, sizeof(struct blk_zone));
 
+        hodo_zone_size = (zone->len) * 512;
         return 0;
 }
 
@@ -949,6 +954,7 @@ static int zonefs_get_zone_info(struct zonefs_zone_data *zd)
                 return -EIO;
         }
 
+        hodo_nr_zones = bdev_nr_zones(bdev);
         return 0;
 }
 
@@ -1377,10 +1383,20 @@ cleanup:
         return ret;
 }
 
+int hodo_late_init_thread(void *data) {
+    msleep(100);  // mount 완료를 기다림, 정확한 타이밍 보장을 어떻게 해야될까?
+    hodo_init();
+    return 0;
+}
+
 static struct dentry *zonefs_mount(struct file_system_type *fs_type,
                                    int flags, const char *dev_name, void *data)
 {
-        return mount_bdev(fs_type, flags, dev_name, data, zonefs_fill_super);
+        struct dentry* ret = mount_bdev(fs_type, flags, dev_name, data, zonefs_fill_super);
+
+        // for test
+        kthread_run(hodo_late_init_thread, NULL, "hodo_late");
+        return ret;
 }
 
 static void zonefs_kill_super(struct super_block *sb)
@@ -1446,8 +1462,6 @@ static int __init zonefs_init(void)
         ret = register_filesystem(&zonefs_type);
         if (ret)
                 goto sysfs_exit;
-
-        hodo_init();
 
         return 0;
 

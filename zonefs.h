@@ -289,6 +289,9 @@ extern const struct address_space_operations hodo_file_aops;
 extern const struct inode_operations zonefs_dir_inode_operations;
 extern const struct file_operations zonefs_dir_operations;
 
+extern int hodo_nr_zones;
+extern int hodo_zone_size;
+
 /* In file.c */
 extern const struct address_space_operations zonefs_file_aops;
 extern const struct file_operations zonefs_file_operations;

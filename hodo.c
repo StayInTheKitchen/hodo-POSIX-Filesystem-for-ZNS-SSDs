@@ -21,6 +21,8 @@
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags);
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl);
+
+// global variable
 struct hodo_mapping_info mapping_info;
 
 
@@ -36,11 +38,56 @@ uint64_t find_inode_number_from_indirect_block(
     struct hodo_datablock *indirect_block
 );
 ssize_t hodo_read_struct(struct hodo_block_pos block_pos, char *out_buf, size_t len);
+ssize_t hodo_write_struct(char *buf, size_t len);
+ssize_t hodo_read_on_disk_mapping_info(void);
+static int hodo_get_next_ino(void);
 
 // init
 void hodo_init() {
     ZONEFS_TRACE();
-    mapping_info.mapping_table[0].zone_id = 1; 
+    hodo_read_on_disk_mapping_info();
+
+    /*TO DO: crash check & recovery*/
+
+    // 초기 상태: 포맷 이후 처음 마운트 된 경우
+    if (mapping_info.wp.zone_id == 0 && mapping_info.wp.offset == 0) {        
+        // 초기 wp는 zone 1번의 offset 0번
+        mapping_info.wp.zone_id = 1;
+        mapping_info.wp.offset = 0;
+
+        // 시작 inode number는 1000
+        mapping_info.starting_ino = 1000; 
+
+        // root direcotry inode 설정
+        struct hodo_inode root_inode;
+
+        // 여기부터 hinode 초기화: 함수로 리팩터링
+        root_inode.magic[0] = 'I';
+        root_inode.magic[1] = 'N';
+        root_inode.magic[2] = 'O';
+        root_inode.magic[3] = 'D';
+
+        root_inode.file_len = 0;
+
+        root_inode.name_len = 1;
+        memcpy(root_inode.name, "/", root_inode.name_len);
+
+        root_inode.type = 1;
+
+        root_inode.i_ino = hodo_get_next_ino();
+        root_inode.i_mode = S_IFDIR; 
+
+        root_inode.i_uid = current_fsuid();
+        root_inode.i_gid = current_fsgid();
+
+        root_inode.i_nlink = 1;
+
+        // root inode를 wp에 쓰기
+        hodo_write_struct((char*)&root_inode, sizeof(root_inode));
+
+        mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
+        mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
+    }
 }
 
 // file_operations -----------------------------------------------------------------------------------------------------
@@ -174,8 +221,22 @@ static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsi
     return hodo_sub_lookup(dir, dentry, flags);
 }
 
+void hodo_set_bitmap(int i, int j) {
+    mapping_info.bitmap[i] |= (1 << (31 - j));
+}
+
 static int hodo_get_next_ino(void) {
-    return 1;
+    for (int i = 0; i < (HODO_MAX_INODE / 32); ++i) {
+        if (mapping_info.bitmap[i] != 0xFFFFFFFF) {
+            for (int j = 0; j < 32; ++j) {
+                if ((mapping_info.bitmap[i] & (1 << (31 - j))) == 0) {
+                    hodo_set_bitmap(i, j);
+                    return mapping_info.starting_ino + (i * 32 + j);
+                }
+            }
+        }
+    }
+    return -1;
 }
 
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl) {
@@ -234,7 +295,8 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
 
     d_add(dentry, inode);
 
-    // 구현할 부분: zns-ssd에 hodo inode를 저장하는 부분을 구현해야 됨.
+    hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode));
+
     return 0;
 }
 
@@ -515,6 +577,124 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, char *out_buf, size_t 
     kvec.iov_base = out_buf;
     kvec.iov_len = len;
     iov_iter_kvec(&iter, ITER_DEST, &kvec, 1, len);
+
+    //kiocb 구성(읽기 요청의 컨텍스트 정보)
+    init_sync_kiocb(&kiocb, zone_file);
+    kiocb.ki_pos = offset;
+
+    //위 두 정보를 가지고 read_iter 실행
+    if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
+         pr_err("zonefs: read_iter not available on file\n");
+        ret = -EINVAL;
+    }
+
+    ret = zone_file->f_op->read_iter(&kiocb, &iter);
+
+    filp_close(zone_file, NULL);
+    return ret;
+}
+
+ssize_t hodo_write_struct(char *buf, size_t len)
+{
+    ZONEFS_TRACE();
+
+    uint32_t zone_id = mapping_info.wp.zone_id;
+    uint64_t offset = mapping_info.wp.offset;
+
+    //write size는 섹터(512Bytes) 단위여야 하고, 하나의 블럭 이내의 크기여야 한다.
+    if (!buf || len == 0 || len > 4096 || (len % 512 != 0))
+        return -EINVAL;
+
+    if (offset + len > hodo_zone_size) {
+        if (zone_id + 1 > hodo_nr_zones) {
+            pr_err("device is full\n");
+            return 0;
+        }
+
+        zone_id++;
+        offset = 0;
+    }
+
+    //seq 파일을 열기 위해 경로 이름(path) 만들기
+    const char path_up[16] = "/mnt/seq/";
+    char path_down[6] = {0, };
+    snprintf(path_down, sizeof(path_down), "%d", zone_id);
+    const char *path = strncat(path_up, path_down, 6);
+
+    struct file *zone_file;
+    struct kiocb kiocb;
+    struct iov_iter iter;
+    struct kvec kvec;
+    ssize_t ret;
+
+    //파일 열기
+    zone_file = filp_open(path, O_WRONLY | O_LARGEFILE, 0);
+    if (IS_ERR(zone_file)) {
+        pr_err("zonefs: filp_open(%s) failed\n", path);
+        return PTR_ERR(zone_file);
+    }
+
+    //iov_iter 구성
+    kvec.iov_base = (void*)buf;
+    kvec.iov_len = len;
+    iov_iter_kvec(&iter, ITER_SOURCE, &kvec, 1, len);
+
+    //kiocb 구성
+    init_sync_kiocb(&kiocb, zone_file);
+    kiocb.ki_pos = offset;
+    kiocb.ki_flags = IOCB_DIRECT;
+
+    //위 두 정보를 가지고 write_iter 실행
+    if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
+         pr_err("zonefs: read_iter not available on file\n");
+        ret = -EINVAL;
+    }
+
+    ret = zone_file->f_op->write_iter(&kiocb, &iter);
+
+    filp_close(zone_file, NULL);
+
+    if (offset + len == hodo_zone_size) {
+        mapping_info.wp.zone_id = zone_id + 1; 
+        mapping_info.wp.offset = 0;
+    }
+    else {
+        mapping_info.wp.zone_id = zone_id; 
+        mapping_info.wp.offset = offset + len;
+    }
+
+    return ret;
+}
+
+ssize_t hodo_read_on_disk_mapping_info(void)
+{
+    ZONEFS_TRACE();
+
+    uint32_t zone_id = 0;
+    uint64_t offset = 0;
+
+    const char path_up[16] = "/mnt/seq/";
+    char path_down[6] = {0, };
+    snprintf(path_down, sizeof(path_down), "%d", zone_id);
+    const char *path = strncat(path_up, path_down, 6);
+
+    struct file *zone_file;
+    struct kiocb kiocb;
+    struct iov_iter iter;
+    struct kvec kvec;
+    ssize_t ret;
+
+    //파일 열기
+    zone_file = filp_open(path, O_RDONLY | O_LARGEFILE, 0);
+    if (IS_ERR(zone_file)) {
+        pr_err("zonefs: filp_open(%s) failed\n", path);
+        return PTR_ERR(zone_file);
+    }
+
+    //iov_iter 구성(읽을 버퍼들 여러개와 읽기 연산 등을 묶은 구조체)
+    kvec.iov_base = &mapping_info;
+    kvec.iov_len = sizeof(struct hodo_mapping_info);
+    iov_iter_kvec(&iter, ITER_DEST, &kvec, 1, sizeof(struct hodo_mapping_info));
 
     //kiocb 구성(읽기 요청의 컨텍스트 정보)
     init_sync_kiocb(&kiocb, zone_file);

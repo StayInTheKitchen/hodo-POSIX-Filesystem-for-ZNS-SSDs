@@ -44,6 +44,8 @@ struct hodo_inode {
     struct hodo_block_pos single_indirect;
     struct hodo_block_pos double_indirect;
     struct hodo_block_pos triple_indirect;
+
+    char padding[192];
 };
 
 struct hodo_datablock {
