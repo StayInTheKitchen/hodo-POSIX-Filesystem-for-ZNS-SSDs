@@ -15,8 +15,8 @@
 #define HODO_MAX_NAME_LEN   16
 #define HODO_MAX_INODE      (1 << 16)
 
+#define HODO_TYPE_REG       0            
 #define HODO_TYPE_DIR       1
-#define HODO_TYPE_REG       2            
 
 #define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
 
