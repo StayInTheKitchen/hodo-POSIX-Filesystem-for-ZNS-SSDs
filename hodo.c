@@ -311,6 +311,9 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry 
 
     hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode));
 
+    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
+    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
+
     return 0;
 }
 
