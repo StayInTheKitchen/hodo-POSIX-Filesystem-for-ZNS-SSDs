@@ -15,6 +15,9 @@
 #define HODO_MAX_NAME_LEN   16
 #define HODO_MAX_INODE      (1 << 16)
 
+#define HODO_TYPE_DIR       1
+#define HODO_TYPE_REG       2            
+
 #define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
 
 struct hodo_block_pos {
@@ -62,9 +65,11 @@ struct hodo_mapping_info {
 
 extern struct hodo_mapping_info mapping_info;
 
-struct hodo_dentry {
+struct hodo_dirent {
     char name[HODO_MAX_NAME_LEN];
+    uint8_t name_len;
     uint64_t i_ino;
+    uint8_t file_type;
 };
 
 // prototype: hodo filesystem initialization
