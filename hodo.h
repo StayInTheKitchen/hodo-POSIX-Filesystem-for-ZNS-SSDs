@@ -12,11 +12,17 @@
 #ifndef __HODO_H__
 #define __HODO_H__
 
-#define HODO_MAX_NAME_LEN   16
-#define HODO_MAX_INODE      (1 << 16)
+#define HODO_MAX_NAME_LEN       16
+#define HODO_MAX_INODE          (1 << 16)
+#define HODO_DATABLOCK_SIZE     4096
+#define HODO_SECTOR_SIZE        512
+#define HODO_DATA_START         4
 
-#define HODO_TYPE_REG       0            
-#define HODO_TYPE_DIR       1
+#define HODO_TYPE_REG           0            
+#define HODO_TYPE_DIR           1
+
+#define END_READ                0
+#define NOTHING_FOUND           0
 
 #define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
 
