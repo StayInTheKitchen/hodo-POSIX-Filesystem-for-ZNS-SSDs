@@ -25,13 +25,25 @@ struct hodo_block_pos {
     uint64_t offset;
 };
 
+struct hodo_datablock {
+    char magic[4];
+    char data[4092];
+};
+
+struct hodo_dirent {
+    char name[HODO_MAX_NAME_LEN];
+    uint8_t name_len;
+    uint64_t i_ino;
+    uint8_t file_type;
+};
+
 struct hodo_inode {
     char magic[4];
     uint64_t file_len;
 
     uint8_t  name_len;
     char     name[HODO_MAX_NAME_LEN];
-    uint8_t  type; // 0: file, 1: directory
+    uint8_t  type;
 
     uint64_t i_ino;
     umode_t  i_mode;
@@ -51,11 +63,6 @@ struct hodo_inode {
     char padding[192];
 };
 
-struct hodo_datablock {
-    char magic[4];
-    char data[4092];
-};
-
 struct hodo_mapping_info {
     struct hodo_block_pos mapping_table[HODO_MAX_INODE];
     int starting_ino;
@@ -65,13 +72,5 @@ struct hodo_mapping_info {
 
 extern struct hodo_mapping_info mapping_info;
 
-struct hodo_dirent {
-    char name[HODO_MAX_NAME_LEN];
-    uint8_t name_len;
-    uint64_t i_ino;
-    uint8_t file_type;
-};
-
-// prototype: hodo filesystem initialization
 void hodo_init(void);
 #endif

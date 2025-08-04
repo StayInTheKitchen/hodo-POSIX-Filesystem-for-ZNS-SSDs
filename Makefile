@@ -3,4 +3,4 @@ ccflags-y                               += -I$(src)
 
 obj-$(CONFIG_ZONEFS_FS) += zonefs.o
 
-zonefs-y        := super.o file.o sysfs.o hodo.o
+zonefs-y        := super.o file.o sysfs.o trans.o hodo.o
