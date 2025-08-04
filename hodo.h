@@ -76,6 +76,7 @@ struct hodo_mapping_info {
     uint32_t bitmap[HODO_MAX_INODE / 32];
 };
 
+extern char mount_point_path[16];
 extern struct hodo_mapping_info mapping_info;
 
 void hodo_init(void);
