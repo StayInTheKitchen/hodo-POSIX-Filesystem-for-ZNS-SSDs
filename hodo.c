@@ -9,21 +9,24 @@
  * Copyright (C) 2025 StayInTheKitchen, Antler9000
  */
 
-
 #include <linux/blkdev.h>
 #include <linux/quotaops.h>
+#include <linux/string.h>
 
 #include "zonefs.h"
 #include "hodo.h"
+#include "trans.h"
 
-
-// prototype: inode operations
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags);
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl);
 
-// global variable
+static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags);
+static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
+
 struct hodo_mapping_info mapping_info;
+
+char mount_point_path[20];
 
 
 // prototype : tool function
@@ -46,22 +49,73 @@ ssize_t hodo_read_on_disk_mapping_info(void);
 static int hodo_get_next_ino(void);
 int add_dirent(struct inode* dir, struct hodo_inode* sub_inode);
 
-// init
-void hodo_init() {
+void hodo_init(void) {
     ZONEFS_TRACE();
     hodo_read_on_disk_mapping_info();
 
+    // 마운트 포인트를 찾는 과정
+    // /proc/self/mountinfo 파일을 파싱해서 zonefs가 마운트된 마운트 포인트를 찾는다
+    // 한계: 마운트 포인트가 여러개라면...?
+    struct file *filp;
+    loff_t pos = 0;
+    char *buf;
+    ssize_t n;
+
+    buf = kmalloc(4096, GFP_KERNEL);
+
+    filp = filp_open("/proc/self/mountinfo", O_RDONLY, 0);
+    if (IS_ERR(filp)) {
+        printk(KERN_ERR "zonefs_parser: failed to open mountinfo\n");
+        kfree(buf);
+        return;
+    }
+
+    while ((n = kernel_read(filp, buf, 4096 - 1, &pos)) > 0) {
+        buf[n] = '\0';
+
+        char *line;
+        while ((line = strsep(&buf, "\n")) != NULL) {
+            if (strstr(line, "zonefs")) {
+                char *sep = strstr(line, " - ");
+                if (!sep)
+                    continue;
+
+                *sep = '\0';
+
+                // 5th token = mountpoint
+                char *token;
+                int i = 0;
+                char *mntpoint = NULL;
+
+                while ((token = strsep(&line, " ")) != NULL) {
+                    if (i++ == 4) {
+                        mntpoint = token;
+                        break;
+                    }
+                }
+
+                if (mntpoint) {
+
+                    break;
+                }
+            }
+        }
+    }
+
+    filp_close(filp, NULL);
+    kfree(buf);
+
     /*TO DO: crash check & recovery*/
 
-    // 초기 상태: 포맷 이후 처음 마운트 된 경우
+    // if it's first mount after formatting
+    // initialize in-memory mapping_info
     if (mapping_info.wp.zone_id == 0 && mapping_info.wp.offset == 0) {        
-        // 초기 wp는 zone 1번의 offset 0번
+        // wp starts from (zone_id: 1, offset: 0)
         mapping_info.wp.zone_id = 1;
         mapping_info.wp.offset = 0;
 
-        // 시작 inode number는 1000
+        // starting_ino(root inode number) is always number of zones
         mapping_info.starting_ino = hodo_nr_zones;
-        pr_info("zonefs: starting_ino: %d\n", mapping_info.starting_ino);
 
         // root direcotry inode 설정
         struct hodo_inode root_inode;
@@ -91,8 +145,6 @@ void hodo_init() {
         mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
         mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].offset = 0;
         hodo_write_struct((char*)&root_inode, sizeof(root_inode));
-
-
     }
 }
 
@@ -250,24 +302,6 @@ static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsi
     return hodo_sub_lookup(dir, dentry, flags);
 }
 
-void hodo_set_bitmap(int i, int j) {
-    mapping_info.bitmap[i] |= (1 << (31 - j));
-}
-
-static int hodo_get_next_ino(void) {
-    for (int i = 0; i < (HODO_MAX_INODE / 32); ++i) {
-        if (mapping_info.bitmap[i] != 0xFFFFFFFF) {
-            for (int j = 0; j < 32; ++j) {
-                if ((mapping_info.bitmap[i] & (1 << (31 - j))) == 0) {
-                    hodo_set_bitmap(i, j);
-                    return mapping_info.starting_ino + (i * 32 + j);
-                }
-            }
-        }
-    }
-    return -1;
-}
-
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl) {
     ZONEFS_TRACE();
 
@@ -276,7 +310,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     struct hodo_inode hinode;
 
     inode = new_inode(dir->i_sb);
-    now = current_time(inode);  // inode의 superblock의 시간 정책에 따른 현재 시각
+    now = current_time(inode);
 
     // 여기부터 hinode 초기화: 함수로 리팩터링
     hinode.magic[0] = 'I';
@@ -294,10 +328,8 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
 
     hinode.type = HODO_TYPE_REG;
 
-    // 구현해야 될 부분: hodo_get_next_ino();
     hinode.i_ino = hodo_get_next_ino();
-    // 논의 사항: i_mode에 S_IFREG (regular file), S_IFDIR (directory) 두 개로 file인지 directory인지 구분이 가능함
-    // 따라서, type 멤버 변수가 필요 없음.
+
     hinode.i_mode = S_IFREG | mode; 
 
     hinode.i_uid = current_fsuid();
@@ -308,7 +340,13 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     hinode.i_atime = now;
     hinode.i_mtime = now;
     hinode.i_ctime = now;
+
+    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
+    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
+    hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode));
     // 여기까지 hinode 초기화: 함수로 리팩터링
+
+    add_dirent(dir, &hinode);
 
     inode->i_ino  = hinode.i_ino;
     inode->i_sb   = dir->i_sb;
@@ -323,12 +361,6 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     inode_set_mtime_to_ts(inode, now);
 
     d_add(dentry, inode);
-
-    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
-    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
-    hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode));
-
-    add_dirent(dir, &hinode);
 
     return 0;
 }
@@ -466,6 +498,7 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
     d_add(dentry, vfs_inode);
     return dentry;
 }
+
 
 uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *target_name) {
     uint64_t result;
@@ -981,6 +1014,7 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 	setattr_copy(&nop_mnt_idmap, inode, iattr);
 
 	return 0;
+
 }
 
 int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {

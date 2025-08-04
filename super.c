@@ -28,7 +28,6 @@
 #include <linux/crc32.h>
 #include <linux/task_io_accounting_ops.h>
 #include <linux/delay.h>
-
 #include "zonefs.h"
 #include "hodo.h"
 
@@ -1394,7 +1393,6 @@ static struct dentry *zonefs_mount(struct file_system_type *fs_type,
 {
         struct dentry* ret = mount_bdev(fs_type, flags, dev_name, data, zonefs_fill_super);
 
-        // for test
         kthread_run(hodo_late_init_thread, NULL, "hodo_late");
         return ret;
 }
