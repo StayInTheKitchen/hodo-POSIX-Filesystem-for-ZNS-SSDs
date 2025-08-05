@@ -25,6 +25,7 @@ int hodo_unlink(struct inode *dir,struct dentry *dentry);
 static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags);
 static int hodo_sub_readdir(struct file *file, struct dir_context *ctx);
 static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
+static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode);
 
 struct hodo_mapping_info mapping_info;
 
@@ -32,7 +33,6 @@ char mount_point_path[16];
 
 void hodo_init(void) {
     ZONEFS_TRACE();
-    hodo_read_on_disk_mapping_info();
 
     // 마운트 포인트를 찾는 과정
     // /proc/self/mountinfo 파일을 파싱해서 zonefs가 마운트된 마운트 포인트를 찾는다
@@ -86,6 +86,7 @@ void hodo_init(void) {
     filp_close(filp, NULL);
     kfree(buf);
 
+    hodo_read_on_disk_mapping_info();
     /*TO DO: crash check & recovery*/
 
     // if it's first mount after formatting
@@ -124,7 +125,7 @@ void hodo_init(void) {
 
         // root inode를 wp에 쓰기
         mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
-        mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].offset = 0;
+        mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
         hodo_write_struct((char*)&root_inode, sizeof(root_inode), NULL);
     }
 }
@@ -322,6 +323,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     hinode.i_mtime = now;
     hinode.i_ctime = now;
 
+    // BUG: zone에 걸친 write가 발생할 시, mapping table 관계가 내부에서 변해야 됨
     mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
     mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
     hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode), NULL);
@@ -395,6 +397,70 @@ int hodo_unlink(struct inode *dir,struct dentry *dentry) {
     return 0;
 }
 
+static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode) {
+    ZONEFS_TRACE();
+
+    struct inode *inode;
+    struct timespec64 now;
+    struct hodo_inode hinode;
+
+    inode = new_inode(dir->i_sb);
+    now = current_time(inode);
+
+    // 여기부터 hinode 초기화: 함수로 리팩터링
+    hinode.magic[0] = 'I';
+    hinode.magic[1] = 'N';
+    hinode.magic[2] = 'O';
+    hinode.magic[3] = 'D';
+
+    hinode.file_len = 0;
+
+    hinode.name_len = dentry->d_name.len; 
+    if (hinode.name_len > HODO_MAX_NAME_LEN) {
+        // 구현해야 될 부분: error handling
+    }
+    memcpy(hinode.name, dentry->d_name.name, hinode.name_len);
+
+    hinode.type = HODO_TYPE_DIR;
+
+    hinode.i_ino = hodo_get_next_ino();
+
+    hinode.i_mode = S_IFDIR | mode; 
+
+    hinode.i_uid = current_fsuid();
+    hinode.i_gid = current_fsgid();
+
+    hinode.i_nlink = 1;
+
+    hinode.i_atime = now;
+    hinode.i_mtime = now;
+    hinode.i_ctime = now;
+
+    // BUG: zone에 걸친 write가 발생할 시, mapping table 관계가 내부에서 변해야 됨
+    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
+    mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
+    hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode), NULL);
+    // 여기까지 hinode 초기화: 함수로 리팩터링
+
+    add_dirent(dir, &hinode);
+
+    inode->i_ino  = hinode.i_ino;
+    inode->i_sb   = dir->i_sb;
+    inode->i_op   = &hodo_dir_inode_operations;
+    inode->i_fop  = &hodo_dir_operations;
+    inode->i_mode = S_IFDIR | mode;
+    inode->i_uid  = current_fsuid();
+    inode->i_gid  = current_fsgid();
+
+    inode_set_ctime_to_ts(inode, now);
+    inode_set_atime_to_ts(inode, now);
+    inode_set_mtime_to_ts(inode, now);
+
+    d_add(dentry, inode);
+
+    return 0;
+}
+
 const struct inode_operations hodo_file_inode_operations = {
     .setattr = hodo_setattr,
 };
@@ -404,6 +470,7 @@ const struct inode_operations hodo_dir_inode_operations = {
     .setattr = hodo_setattr,
     .create = hodo_create,
     .unlink = hodo_unlink,
+    .mkdir  = hodo_mkdir,
 };
 
 // aops ---------------------------------------------------------------------------------------------------
