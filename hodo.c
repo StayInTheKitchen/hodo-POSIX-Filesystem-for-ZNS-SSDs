@@ -20,15 +20,15 @@
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags);
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl);
+int hodo_unlink(struct inode *dir,struct dentry *dentry);
 
 static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags);
+static int hodo_sub_readdir(struct file *file, struct dir_context *ctx);
 static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
 
 struct hodo_mapping_info mapping_info;
 
 char mount_point_path[16];
-
-static int hodo_sub_readdir(struct file *file, struct dir_context *ctx);
 
 void hodo_init(void) {
     ZONEFS_TRACE();
@@ -125,7 +125,7 @@ void hodo_init(void) {
         // root inode를 wp에 쓰기
         mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
         mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_ino].offset = 0;
-        hodo_write_struct((char*)&root_inode, sizeof(root_inode));
+        hodo_write_struct((char*)&root_inode, sizeof(root_inode), NULL);
     }
 }
 
@@ -324,7 +324,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
 
     mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
     mapping_info.mapping_table[hinode.i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset;
-    hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode));
+    hodo_write_struct((char*)&hinode, sizeof(struct hodo_inode), NULL);
     // 여기까지 hinode 초기화: 함수로 리팩터링
 
     add_dirent(dir, &hinode);
@@ -346,6 +346,55 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     return 0;
 }
 
+int hodo_unlink(struct inode *dir,struct dentry *dentry) {
+    const char *target_name = dentry->d_name.name;
+    const char *parent_name = dentry->d_parent->d_name.name;
+    pr_info("zonefs: unlink parameters, parent name: %s, target name: %s\n", parent_name, target_name); 
+
+    //루트 디렉토리는 i_ino와 무관하게 매핑 테이블의 0번째 인덱스에 위치하므로, 수동으로 인덱스를 결정한다
+    uint64_t parent_mapping_index;
+    uint64_t target_mapping_index;
+    if (dir != dentry->d_sb->s_root->d_inode) {
+        parent_mapping_index = 0;
+        target_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_ino;
+    }
+    else {
+        parent_mapping_index = dir->i_ino - mapping_info.starting_ino;
+        target_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_ino;
+    }
+
+    //매핑 테이블에서 삭제 파일에 관한 행은 이제 쓰이지 않으므로, 비트맵에서 invalid(0)으로 표시한다
+    hodo_erase_table_entry(target_mapping_index);
+
+    //target hodo_inode의 i_nlink 수를 0으로 곤치고서 저장장치에 append 하기
+    struct hodo_inode target_inode;
+    struct hodo_block_pos target_inode_pos;
+
+    target_inode_pos = mapping_info.mapping_table[target_mapping_index];
+    hodo_read_struct(target_inode_pos, (char*)&target_inode, sizeof(struct hodo_inode));
+    
+    target_inode.i_nlink = 0;
+    
+    hodo_write_struct((char*)&target_inode, sizeof(struct hodo_inode), NULL);
+
+    //부모 디렉토리 hodo_inode가 가리키는 직간접적인 데이터블럭에서 삭제 파일의 hodo_dirent를 삭제하고 hodo_inode까지 새로 쓰기
+    struct hodo_inode parent_inode;
+    struct hodo_block_pos parent_inode_pos;
+
+    parent_inode_pos = mapping_info.mapping_table[parent_mapping_index];
+    hodo_read_struct(parent_inode_pos, (char*)&parent_inode, sizeof(struct hodo_inode));
+    
+    struct hodo_block_pos inode_written_pos;
+    remove_dirent(&parent_inode, target_name, &inode_written_pos);
+    
+    mapping_info.mapping_table[parent_mapping_index].zone_id = inode_written_pos.zone_id;
+    mapping_info.mapping_table[parent_mapping_index].zone_id = inode_written_pos.offset;
+
+    //VFS 덴트리 캐시 드랍하기
+    d_drop(dentry);
+    return 0;
+}
+
 const struct inode_operations hodo_file_inode_operations = {
     .setattr = hodo_setattr,
 };
@@ -354,6 +403,7 @@ const struct inode_operations hodo_dir_inode_operations = {
     .lookup  = hodo_lookup,
     .setattr = hodo_setattr,
     .create = hodo_create,
+    .unlink = hodo_unlink,
 };
 
 // aops ---------------------------------------------------------------------------------------------------
@@ -432,14 +482,14 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
     //부모 디렉토리의 hodo 아이노드를 읽어온다
     //루트 노드의 hodo 아이노드 상의 번호는 vfs 아이노드 상의 번호와 달리 0번이니 조작한다 
     uint64_t parent_hodo_inode_number = dir->i_ino;
-    struct hodo_block_pos parent_hodo_inode_pos = {0, 0};
+    struct hodo_block_pos parent_hodo_inode_pos;
 
     if(dir == dentry->d_sb->s_root->d_inode)
         parent_hodo_inode_pos = mapping_info.mapping_table[0];
     else
         parent_hodo_inode_pos = mapping_info.mapping_table[parent_hodo_inode_number - mapping_info.starting_ino];
 
-    struct hodo_inode parent_hodo_inode = { 0, };
+    struct hodo_inode parent_hodo_inode;
     hodo_read_struct(parent_hodo_inode_pos, (char*)&parent_hodo_inode, sizeof(struct hodo_inode));
 
     //찾고자 하는 이름을 가진 hodo 아이노드를 읽어온다
@@ -567,3 +617,5 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 	return 0;
 
 }
+
+

@@ -15,7 +15,7 @@
 #include "trans.h"
 
 
-uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *target_name) {
+uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name) {
     uint64_t result;
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
@@ -28,12 +28,12 @@ uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *tar
     struct hodo_block_pos direct_block_pos;
 
     for (int i = 0; i < 10; i++) {
-        direct_block_pos = parent_hodo_inode->direct[i];
+        direct_block_pos = dir_hodo_inode->direct[i];
         
         if(is_block_pos_valid(direct_block_pos)) {
             hodo_read_struct(direct_block_pos, (char*)buf_block, HODO_DATABLOCK_SIZE);
 
-            result = find_inode_number_from_direct_block(target_name, buf_block);
+            result = find_inode_number_from_direct_block(buf_block, target_name);
 
             if (result != NOTHING_FOUND) {
                 kfree(buf_block);
@@ -44,16 +44,16 @@ uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *tar
 
     //single, double, triple indirect data block에서 특정 이름의 hodo dentry를 찾아보기
     struct hodo_block_pos indirect_block_pos[3] = {
-        parent_hodo_inode->single_indirect,
-        parent_hodo_inode->double_indirect,
-        parent_hodo_inode->triple_indirect
+        dir_hodo_inode->single_indirect,
+        dir_hodo_inode->double_indirect,
+        dir_hodo_inode->triple_indirect
     };
 
     for(int i = 0; i < 3; i++){
         if(is_block_pos_valid(indirect_block_pos[i])) {
             hodo_read_struct(indirect_block_pos[i], (char*)buf_block, HODO_DATABLOCK_SIZE);
 
-            result = find_inode_number_from_indirect_block(target_name, buf_block);
+            result = find_inode_number_from_indirect_block(buf_block, target_name);
 
             if (result != NOTHING_FOUND) {
                 kfree(buf_block);
@@ -68,8 +68,8 @@ uint64_t find_inode_number(struct hodo_inode *parent_hodo_inode, const char *tar
 }
 
 uint64_t find_inode_number_from_direct_block(
-    const char *target_name,
-    struct hodo_datablock* direct_block
+    struct hodo_datablock* direct_block,
+    const char *target_name
 ) {
     for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
         struct hodo_dirent temp_dirent;
@@ -83,8 +83,8 @@ uint64_t find_inode_number_from_direct_block(
 }
 
 uint64_t find_inode_number_from_indirect_block(
-    const char *target_name,
-    struct hodo_datablock *indirect_block
+    struct hodo_datablock *indirect_block,
+    const char *target_name
 ) {
     struct hodo_block_pos temp_block_pos;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -97,7 +97,7 @@ uint64_t find_inode_number_from_indirect_block(
     for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
         memcpy(&temp_block_pos, indirect_block + j, sizeof(struct hodo_block_pos));
 
-        if(temp_block_pos.zone_id == 0 && temp_block_pos.offset == 0)  
+        if(!is_block_pos_valid(temp_block_pos))
             continue;
 
         hodo_read_struct(temp_block_pos, (char*)temp_block, HODO_DATABLOCK_SIZE);
@@ -105,10 +105,10 @@ uint64_t find_inode_number_from_indirect_block(
         uint64_t result;
 
         if(is_directblock(temp_block))
-            result = find_inode_number_from_direct_block(target_name, temp_block);
+            result = find_inode_number_from_direct_block(temp_block, target_name);
 
         else 
-            result = find_inode_number_from_indirect_block(target_name, temp_block);
+            result = find_inode_number_from_indirect_block(temp_block, target_name);
 
         if (result != NOTHING_FOUND){
             kfree(temp_block);
@@ -217,6 +217,10 @@ int read_all_dirents_from_indirect_block(
 
     for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
         memcpy(&temp_block_pos, indirect_block + j, sizeof(struct hodo_block_pos));
+
+        if(!is_block_pos_valid(temp_block_pos))
+            continue;
+
         hodo_read_struct(temp_block_pos, (char*)temp_block, HODO_DATABLOCK_SIZE);
 
         uint64_t result;
@@ -276,11 +280,11 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
                     dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
                     dir_inode.direct[i].offset = mapping_info.wp.offset;
-                    hodo_write_struct((char*)temp_datablock, sizeof(struct hodo_datablock));
+                    hodo_write_struct((char*)temp_datablock, sizeof(struct hodo_datablock), NULL);
 
                     mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
                     mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset; 
-                    hodo_write_struct((char*)&dir_inode, sizeof(struct hodo_inode));
+                    hodo_write_struct((char*)&dir_inode, sizeof(struct hodo_inode), NULL);
 
                     break;
                 }
@@ -305,11 +309,11 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
             dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
             dir_inode.direct[i].offset = mapping_info.wp.offset;
-            hodo_write_struct((char*)temp_datablock, sizeof(struct hodo_datablock));
+            hodo_write_struct((char*)temp_datablock, sizeof(struct hodo_datablock), NULL);
 
             mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
             mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset; 
-            hodo_write_struct((char*)&dir_inode, sizeof(struct hodo_inode));
+            hodo_write_struct((char*)&dir_inode, sizeof(struct hodo_inode), NULL);
 
             kfree(temp_datablock);
             return 0;
@@ -318,6 +322,148 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
     kfree(temp_datablock);
     return -1;
+}
+
+int compact_datablock(struct hodo_datablock *source_block, int remove_start_index, int remove_size, struct hodo_block_pos *out_pos){
+    struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+    int remove_end_index = remove_start_index + remove_size;
+
+    //(0~remove_start_index) 사이의 내용을 temp_block으로 옮긴다
+    memcpy(temp_block, source_block, remove_start_index);
+    //(remove_end_index~HODO_DATABLOCK_SIZE) 사이의 내용을 temp_block 안에 덧붙인다.
+    memcpy((char*)temp_block + remove_start_index, (char*)source_block + remove_end_index, HODO_DATABLOCK_SIZE - remove_end_index);
+
+    hodo_write_struct((char*)temp_block, sizeof(struct hodo_datablock), out_pos);
+
+    kfree(temp_block);
+    return 0;
+}
+
+int remove_dirent(struct hodo_inode *dir_hodo_inode, const char *target_name, struct hodo_block_pos *out_pos){
+    ZONEFS_TRACE();
+    struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+
+    if (buf_block == NULL) {
+        pr_info("zonefs: (error in hodo_unlink) cannot allocate 4KB heap space for datablock variable\n");
+        return NOTHING_FOUND;
+    }
+
+    int result;
+    struct hodo_block_pos written_pos;
+
+    //direct data block에서 target_mapping_index를 가진 dirent를 찾아 지우기
+    struct hodo_block_pos direct_block_pos;
+
+    for (int i = 0; i < 10; i++) {
+        direct_block_pos = dir_hodo_inode->direct[i];
+        
+        pr_info("zonefs: (error in hodo_unlink) direct_index : %d\n", i);
+        if(is_block_pos_valid(direct_block_pos)) {
+
+            hodo_read_struct(direct_block_pos, (char*)buf_block, HODO_DATABLOCK_SIZE);
+
+            result = remove_dirent_from_direct_block(buf_block, target_name, &written_pos);
+            
+            pr_info("zonefs: (error in hodo_unlink) result : %d\n", result);
+            if(result != NOTHING_FOUND) {
+                //dirent를 삭제하면서 direct_datablock가 새로 써지므로, 이를 가리키는 hodo_inode는 새로 써져야 한다.
+                dir_hodo_inode->direct[i] = written_pos;
+                hodo_write_struct((char*)dir_hodo_inode, sizeof(struct hodo_inode), out_pos);
+                pr_info("zonefs: (error in hodo_unlink) new_written out_pos.zone_id : %d / out_pos.offset : %d\n", out_pos->zone_id, out_pos->offset);
+                kfree(buf_block);
+                return result;
+            }
+        }
+    }
+
+    //single, double, triple indirect data block들이 가리키는 direct_data_block에서 target_mapping_index를 가진 dirent를 찾아 지우기
+    struct hodo_block_pos *indirect_block_pos[3] = {
+        &(dir_hodo_inode->single_indirect),
+        &(dir_hodo_inode->double_indirect),
+        &(dir_hodo_inode->triple_indirect)
+    };
+
+    for(int i = 0; i < 3; i++){
+        if(is_block_pos_valid(*indirect_block_pos[i])) {
+            hodo_read_struct(*indirect_block_pos[i], (char*)buf_block, HODO_DATABLOCK_SIZE);
+
+            result = remove_dirent_from_indirect_block(buf_block, target_name, &written_pos);
+
+            if(result != NOTHING_FOUND) {
+                //dirent를 삭제하면서 direct_datablock가 새로 써지고, 이를 가리키는 indirect_datablock도 새로 써지므로, 이를 가리키는 hodo_inode 또한 새로 써져야 한다.
+                *indirect_block_pos[i] = written_pos;
+                hodo_write_struct((char*)dir_hodo_inode, sizeof(struct hodo_inode), out_pos);
+                kfree(buf_block);
+                return result;
+            }
+        }
+    }
+
+    //해당 이름의 dirent를 찾아서 삭제하지 못하였으므로
+    kfree(buf_block);
+    return NOTHING_FOUND;
+}
+
+int remove_dirent_from_direct_block(
+    struct hodo_datablock *direct_block,
+    const char *target_name,
+    struct hodo_block_pos *out_pos
+) {
+    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
+        struct hodo_dirent temp_dirent;
+        memcpy(&temp_dirent, direct_block + j, sizeof(struct hodo_dirent));
+        pr_info("zonefs: (error in hodo_unlink) j is %d / temp_dirent.name is %s, target string is %s\n", j, temp_dirent.name, target_name);
+        if (memcmp(temp_dirent.name, target_name, HODO_MAX_NAME_LEN) == 0){
+            compact_datablock(direct_block, j, sizeof(struct hodo_dirent), out_pos);
+            pr_info("zonefs: (error in hodo_unlink) found_something!\n");
+            return !NOTHING_FOUND;
+        }
+    }
+
+    return NOTHING_FOUND;
+}
+
+int remove_dirent_from_indirect_block(
+    struct hodo_datablock *indirect_block,
+    const char *target_name,
+    struct hodo_block_pos *out_pos
+) {
+    struct hodo_block_pos temp_block_pos;
+    struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+
+    if (temp_block == NULL) {
+        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+        return NOTHING_FOUND;
+    }
+
+    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
+        memcpy(&temp_block_pos, indirect_block + j, sizeof(struct hodo_block_pos));
+
+        if(!is_block_pos_valid(temp_block_pos))  
+            continue;
+
+        hodo_read_struct(temp_block_pos, (char*)temp_block, HODO_DATABLOCK_SIZE);
+
+        int result;
+        struct hodo_block_pos written_pos;
+
+        if(is_directblock(temp_block))
+            result = remove_dirent_from_direct_block(temp_block, target_name, &written_pos);
+
+        else 
+            result = remove_dirent_from_indirect_block(temp_block, target_name, &written_pos);
+
+        if (result != NOTHING_FOUND && is_block_pos_valid(written_pos)){
+            //dirent를 삭제하면서 direct_datablock가 새로 써지므로, 이를 가리키는 indirect_datablock도 거슬러 올라가며 새로 써져야 한다.
+            memcpy((char*)indirect_block + j, &written_pos, sizeof(struct hodo_block_pos));
+            hodo_write_struct((char*)indirect_block, sizeof(struct hodo_datablock), out_pos);
+            kfree(temp_block);
+            return result;
+        }
+    }
+
+    kfree(temp_block);
+    return NOTHING_FOUND;
 }
 
 bool is_dirent_valid(struct hodo_dirent *dirent){
@@ -339,6 +485,10 @@ void hodo_set_bitmap(int i, int j) {
     mapping_info.bitmap[i] |= (1 << (31 - j));
 }
 
+void hodo_unset_bitmap(int i, int j) {
+    mapping_info.bitmap[i] &= ~(1 << (31 - j));
+}
+
 int hodo_get_next_ino(void) {
     for (int i = 0; i < (HODO_MAX_INODE / 32); ++i) {
         if (mapping_info.bitmap[i] != 0xFFFFFFFF) {
@@ -351,6 +501,11 @@ int hodo_get_next_ino(void) {
         }
     }
     return -1;
+}
+
+int hodo_erase_table_entry(int table_entry_index){
+    hodo_unset_bitmap(table_entry_index/32, table_entry_index%32);
+    return 0;
 }
 
 ssize_t hodo_read_struct(struct hodo_block_pos block_pos, char *out_buf, size_t len)
@@ -408,12 +563,16 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, char *out_buf, size_t 
     return ret;
 }
 
-ssize_t hodo_write_struct(char *buf, size_t len)
+ssize_t hodo_write_struct(char *buf, size_t len, struct hodo_block_pos *out_pos)
 {
     ZONEFS_TRACE();
 
     uint32_t zone_id = mapping_info.wp.zone_id;
     uint64_t offset = mapping_info.wp.offset;
+    if(out_pos != NULL){
+        out_pos->zone_id = zone_id;
+        out_pos->offset = offset;
+    }
 
     //write size는 HODO_SECTOR_SIZE 단위여야 하고, 하나의 블럭 이내의 크기여야 한다.
     if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE || (len % HODO_SECTOR_SIZE != 0))
@@ -482,6 +641,7 @@ ssize_t hodo_write_struct(char *buf, size_t len)
 
     return ret;
 }
+
 
 ssize_t hodo_read_on_disk_mapping_info(void)
 {
