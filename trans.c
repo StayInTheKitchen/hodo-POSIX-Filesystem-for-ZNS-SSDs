@@ -249,11 +249,11 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     for (int i = 0; i < 10; ++i) {
+        pr_info("%dth data block\n", i);
         if (dir_inode.direct[i].zone_id != 0) {
             struct hodo_block_pos temp_pos = {dir_inode.direct[i].zone_id, dir_inode.direct[i].offset};
             hodo_read_struct(temp_pos, (char*)temp_datablock, sizeof(struct hodo_datablock));
 
-            // TODO: 지금은 direct block만 사용... indirect block도 사용하도록 수정
             for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
                 struct hodo_dirent temp_dirent;
                 memcpy(&temp_dirent, (void*)temp_datablock + j, sizeof(struct hodo_dirent));
@@ -267,11 +267,6 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
                     temp_dirent.i_ino = sub_inode->i_ino;
                     temp_dirent.file_type = sub_inode->type;
 
-                    temp_datablock->magic[0] = 'D';
-                    temp_datablock->magic[1] = 'A';
-                    temp_datablock->magic[2] = 'T';
-                    temp_datablock->magic[3] = '0';
-
                     memcpy((void*)temp_datablock + j, &temp_dirent, sizeof(struct hodo_dirent));
 
                     dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
@@ -282,12 +277,10 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
                     mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset; 
                     hodo_write_struct((char*)&dir_inode, sizeof(struct hodo_inode));
 
-                    break;
+                    kfree(temp_datablock);
+                    return 0;
                 }
             }
-
-            kfree(temp_datablock);
-            return 0;
         }
         else {
             struct hodo_dirent temp_dirent;
@@ -296,6 +289,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
             temp_dirent.i_ino = sub_inode->i_ino;
             temp_dirent.file_type = sub_inode->type;
 
+            memset(temp_datablock, 0, HODO_DATABLOCK_SIZE);
             temp_datablock->magic[0] = 'D';
             temp_datablock->magic[1] = 'A';
             temp_datablock->magic[2] = 'T';
@@ -419,7 +413,7 @@ ssize_t hodo_write_struct(char *buf, size_t len)
     if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE || (len % HODO_SECTOR_SIZE != 0))
         return -EINVAL;
 
-    if (offset + len > hodo_zone_size) {
+    if (offset + len >= hodo_zone_size) {
         if (zone_id + 1 > hodo_nr_zones) {
             pr_err("device is full\n");
             return 0;
@@ -461,6 +455,7 @@ ssize_t hodo_write_struct(char *buf, size_t len)
     kiocb.ki_pos = offset;
     kiocb.ki_flags = IOCB_DIRECT;
 
+    pr_info("path: %s\toffset: %ld\n", path, offset);
     //위 두 정보를 가지고 write_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
          pr_err("zonefs: read_iter not available on file\n");
