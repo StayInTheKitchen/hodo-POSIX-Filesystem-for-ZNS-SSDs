@@ -16,19 +16,27 @@
 #include "zonefs.h"
 #include "hodo.h"
 #include "trans.h"
+/*----------------------------------------------------------주소공간 오퍼레이션 함수 선언-------------------------------------------------------------------------------*/
+//nothing
 
+/*----------------------------------------------------------아이노드 오퍼레이션 함수 선언-------------------------------------------------------------------------------*/
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags);
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir,struct dentry *dentry, umode_t mode, bool excl);
-int hodo_unlink(struct inode *dir,struct dentry *dentry);
+static int hodo_unlink(struct inode *dir, struct dentry *dentry);
+static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode);
+static int hodo_rmdir(struct inode *dir, struct dentry *dentry);
 
+/*----------------------------------------------------------주소공간 오퍼레이션 함수 선언-------------------------------------------------------------------------------*/
+//nothing
+
+/*----------------------------------------------------------오퍼레이션 서브 함수 선언----------------------------------------------------------------------------------*/
 static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags);
 static int hodo_sub_readdir(struct file *file, struct dir_context *ctx);
 static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
-static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode);
 
+/*----------------------------------------------------------글로벌 변수 및 초기화--------------------------------------------------------------------------------------*/
 struct hodo_mapping_info mapping_info;
-
 char mount_point_path[16];
 
 void hodo_init(void) {
@@ -130,7 +138,7 @@ void hodo_init(void) {
     }
 }
 
-// file_operations -----------------------------------------------------------------------------------------------------
+/*----------------------------------------------------------파일 오퍼레이션 함수----------------------------------------------------------------------------------------*/
 static int hodo_file_open(struct inode *inode, struct file *filp) {
     ZONEFS_TRACE();
 
@@ -143,6 +151,7 @@ static int hodo_file_open(struct inode *inode, struct file *filp) {
 
     return 0;
 }
+
 static ssize_t hodo_read_dir(struct file *file, char __user *buf, size_t count, loff_t *pos) {
     ZONEFS_TRACE();
 
@@ -184,12 +193,10 @@ static loff_t hodo_dir_llseek(struct file *filp, loff_t offset, int whence) {
     return zonefs_dir_operations.llseek(filp, offset, whence);
 }
 
-static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
-{
+static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 	ZONEFS_TRACE();
 	return zonefs_file_operations.read_iter(iocb, to);
 }
-
 
 static ssize_t hodo_file_write_iter(struct kiocb *iocb, struct iov_iter *from) {
     ZONEFS_TRACE();
@@ -250,7 +257,7 @@ const struct file_operations hodo_dir_operations = {
 	.iterate_shared	= hodo_readdir,
 };
 
-// inode operations------------------------------------------------------------------------------------------------------
+/*-------------------------------------------------------------아이노드 오퍼레이션 함수-------------------------------------------------------------------------------*/
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
     ZONEFS_TRACE();
 
@@ -269,10 +276,10 @@ static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct i
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
     ZONEFS_TRACE();
 
+    //seq, cnv 또는 그 하위 디렉토리는 기존 zonefs lookup 사용
     const char* name = dentry->d_name.name;
     const char* parent = dentry->d_parent->d_name.name;
 
-    //seq, cnv 또는 그 하위 디렉토리는 기존 zonefs lookup 사용
     if (!strcmp(name, "seq") || !strcmp(name, "cnv") ||
         !strcmp(parent, "seq") || !strcmp(parent, "cnv")) {
         pr_info("zonefs: using original lookup for '%s' (parent: %s)\n", name, parent);
@@ -348,9 +355,8 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     return 0;
 }
 
-int hodo_unlink(struct inode *dir,struct dentry *dentry) {
-    const char *target_name = dentry->d_name.name;
-    const char *parent_name = dentry->d_parent->d_name.name;
+static int hodo_unlink(struct inode *dir,struct dentry *dentry) {
+    ZONEFS_TRACE();
 
     struct timespec64 now;
     now = current_time(dir);
@@ -358,7 +364,15 @@ int hodo_unlink(struct inode *dir,struct dentry *dentry) {
     inode_set_atime_to_ts(dir, now);
     inode_set_mtime_to_ts(dir, now);
 
+    //'seq', 'cnv' 디렉토리 속 파일은 삭제되어선 안된다
+    const char *target_name = dentry->d_name.name;
+    const char *parent_name = dentry->d_parent->d_name.name;
     pr_info("zonefs: unlink parameters, parent name: %s, target name: %s\n", parent_name, target_name); 
+
+    if (!strcmp(parent_name, "seq") || !strcmp(parent_name, "cnv")) {
+        pr_info("zonefs: we do not unlink file under the 'seq' or 'cnv'\n");
+        return 0;
+    }
 
     //루트 디렉토리는 i_ino와 무관하게 매핑 테이블의 0번째 인덱스에 위치하므로, 수동으로 인덱스를 결정한다
     uint64_t parent_mapping_index;
@@ -474,19 +488,41 @@ static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry 
     return 0;
 }
 
+static int hodo_rmdir(struct inode *dir, struct dentry *dentry){
+    ZONEFS_TRACE();
+    
+    //seq, cnv 디렉토리는 삭제되면 안된다.
+    const char *target_name = dentry->d_name.name;
+    const char *parent_name = dentry->d_parent->d_name.name;
+
+    if (!strcmp(target_name, "seq") || !strcmp(target_name, "cnv")) {
+        pr_info("zonefs: we do not rmdir 'seq' or 'cnv'\n");
+        return 0;
+    }
+
+    //예하 파일이 있는 디렉토리는 지우면 안된다.
+    if(!check_directory_empty(dentry))
+        return -ENOTEMPTY;
+
+    //그 외엔 부모 디렉토리의 nlink수를 줄이고, .unlink(..)를 활용해 rmdir을 수행한다.
+    drop_nlink(dir);
+    return hodo_unlink(dir, dentry);
+}
+
 const struct inode_operations hodo_file_inode_operations = {
     .setattr = hodo_setattr,
 };
 
 const struct inode_operations hodo_dir_inode_operations = {
-    .lookup  = hodo_lookup,
-    .setattr = hodo_setattr,
-    .create = hodo_create,
-    .unlink = hodo_unlink,
-    .mkdir  = hodo_mkdir,
+    .lookup     = hodo_lookup,
+    .setattr    = hodo_setattr,
+    .create     = hodo_create,
+    .unlink     = hodo_unlink,
+    .mkdir      = hodo_mkdir,
+    .rmdir      = hodo_rmdir, 
 };
 
-// aops ---------------------------------------------------------------------------------------------------
+/*-------------------------------------------------------------주소공간 오퍼레이션 함수-------------------------------------------------------------------------------*/
 static int hodo_read_folio(struct file *file, struct folio *folio) {
     ZONEFS_TRACE();
     return zonefs_file_aops.read_folio(file, folio);
@@ -553,6 +589,7 @@ const struct address_space_operations hodo_file_aops = {
     .swap_activate         = hodo_swap_activate,
 };
 
+/*-------------------------------------------------------------오퍼레이션 서브 함수-------------------------------------------------------------------------------*/
 static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags) {
     ZONEFS_TRACE();
 
