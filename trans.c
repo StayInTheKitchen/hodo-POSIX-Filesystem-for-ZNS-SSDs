@@ -458,12 +458,12 @@ ssize_t hodo_write_struct(char *buf, size_t len)
     pr_info("path: %s\toffset: %ld\n", path, offset);
     //위 두 정보를 가지고 write_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
-         pr_err("zonefs: read_iter not available on file\n");
+        pr_err("zonefs: read_iter not available on file\n");
+        filp_close(zone_file, NULL);
         ret = -EINVAL;
     }
 
     ret = zone_file->f_op->write_iter(&kiocb, &iter);
-
     filp_close(zone_file, NULL);
 
     if (offset + len == hodo_zone_size) {
