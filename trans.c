@@ -693,10 +693,6 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
 
     uint32_t zone_id = mapping_info.wp.zone_id;
     uint64_t offset = mapping_info.wp.offset;
-    if(out_pos != NULL){
-        out_pos->zone_id = zone_id;
-        out_pos->offset = offset;
-    }
 
     //write size는 HODO_SECTOR_SIZE 단위여야 하고, 하나의 블럭 이내의 크기여야 한다.
     if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE || (len % HODO_SECTOR_SIZE != 0))
@@ -710,6 +706,11 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
 
         zone_id++;
         offset = 0;
+    }
+
+    if(out_pos != NULL){
+        out_pos->zone_id = zone_id;
+        out_pos->offset = offset;
     }
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기

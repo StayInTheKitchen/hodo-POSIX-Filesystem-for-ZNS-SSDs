@@ -214,8 +214,11 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
         return 0;
     }
 
-    int n_blocks = 1 + ((file_len-1) / HODO_DATABLOCK_SIZE);
-    int left_bytes_for_last_block = file_len - (HODO_DATABLOCK_SIZE * n_blocks);
+    int n_blocks = 1 + ((file_len-1) / HODO_DATA_SIZE);
+    int left_bytes_for_last_block = file_len - (HODO_DATA_SIZE * n_blocks);
+    pr_info("n_blocks: %d\tleft_bytes_for_last_block:%d\n", n_blocks, left_bytes_for_last_block);
+
+    return 4;
 
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
@@ -230,7 +233,7 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
     // 마지막 데이터 블럭은 꽉 차있지 않으니까, 따로 처리
     struct hodo_block_pos data_block_pos = {file_inode.direct[i].zone_id, file_inode.direct[i].offset};
     hodo_read_struct(data_block_pos, temp_datablock, sizeof(struct hodo_datablock));
-    copy_to_iter(temp_datablock, left_bytes_for_last_block, to);
+    copy_to_iter(temp_datablock + HODO_DATA_START, left_bytes_for_last_block, to);
 
     kfree(temp_datablock);
 
@@ -774,26 +777,16 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 	    }
     }
 
-
-	if (((iattr->ia_valid & ATTR_UID) &&
-	     !uid_eq(iattr->ia_uid, inode->i_uid)) ||
-	    ((iattr->ia_valid & ATTR_GID) &&
-	     !gid_eq(iattr->ia_gid, inode->i_gid))) {
-		ret = dquot_transfer(&nop_mnt_idmap, inode, iattr);
-		if (ret)
-			return ret;
-	}
-
 	if (iattr->ia_valid & ATTR_SIZE) {
-		ret = zonefs_file_truncate(inode, iattr->ia_size);
-		if (ret)
-			return ret;
+        pr_info("inode: %d\tia_size:%d\n", inode->i_ino, iattr->ia_size);
+	    truncate_setsize(inode, iattr->ia_size);
+		// ret = zonefs_file_truncate(inode, iattr->ia_size);
+		// if (ret)
+		// 	return ret;
 	}
 
 	setattr_copy(&nop_mnt_idmap, inode, iattr);
-
 	return 0;
-
 }
 
 //TODO1 : indirect data block에서의 write 지원하기
@@ -815,20 +808,20 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
     hodo_read_struct(target_inode_pos, &target_hodo_inode, sizeof(struct hodo_inode));
     
     //타겟 파일에서 쓸 Direct Data Block의 인덱스(0-based)를 찾기
-    int data_block_index = target_hodo_inode.file_len / 4096;
-    if(data_block_index >= 10){
-        pr_info("zonefs: write_iter in the indirect data block is not yet implemented\n");
-        //TODO1
-        return 0;
-    }
+    int data_block_index = target_hodo_inode.file_len / 4092;
+    // if(data_block_index >= 10){
+    //     pr_info("zonefs: write_iter in the indirect data block is not yet implemented\n");
+    //     //TODO1
+    //     return 0;
+    // }
 
-    //꽉차지 않은 마지막 블럭에 데이터가 있다면, 이들을 새로 쓸 데이터랑 합치도록 한다.
-    int last_block_used_size = target_hodo_inode.file_len % 4096;
-    if(last_block_used_size != 0){
-        pr_info("zonefs: write_iter when merge is needed is not yet implemented\n");
-        //TODO2
-        return 0;
-    }
+    // //꽉차지 않은 마지막 블럭에 데이터가 있다면, 이들을 새로 쓸 데이터랑 합치도록 한다.
+    // int last_block_used_size = target_hodo_inode.file_len % 4096;
+    // if(last_block_used_size != 0){
+    //     pr_info("zonefs: write_iter when merge is needed is not yet implemented\n");
+    //     //TODO2
+    //     return 0;
+    // }
 
     //쓰고자 하는 내용을 iov_iter로부터 읽어와서 이를 블록 크기 단위로, data block index 위치의 block pos가 가리키는 곳에 쓴다.
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -840,7 +833,7 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
     int len = iov_iter_count(from);
     struct hodo_block_pos datablock_written_pos = {0, 0};
     struct hodo_block_pos inode_written_pos = {0, 0};
-    while(len > 0 && data_block_index < 10){
+    // while(len > 0 && data_block_index < 10){
         temp_block->magic[0] = 'D';
         temp_block->magic[1] = 'A';
         temp_block->magic[2] = 'T';
@@ -856,7 +849,7 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
         else {
             if(copy_from_iter(temp_block->data, len, from) != len)
                 return -EFAULT;
-            hodo_write_struct(temp_block, len + HODO_DATA_START, &datablock_written_pos);
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &datablock_written_pos);
             target_hodo_inode.file_len += len;
         }
 
@@ -865,11 +858,9 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
         mapping_info.mapping_table[target_mapping_index] = inode_written_pos;
 
         data_block_index++;
-        len = iov_iter_count(from);
-    }
+    // }
 
-
-    return 0;
+    return len;
 }
 
 
