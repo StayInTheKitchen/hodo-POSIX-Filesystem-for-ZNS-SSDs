@@ -94,6 +94,7 @@ void hodo_init(void) {
     filp_close(filp, NULL);
     kfree(buf);
 
+    mapping_info.starting_ino = hodo_nr_zones;
     hodo_read_on_disk_mapping_info();
     /*TO DO: crash check & recovery*/
 
@@ -103,9 +104,6 @@ void hodo_init(void) {
         // wp starts from (zone_id: 1, offset: 0)
         mapping_info.wp.zone_id = 1;
         mapping_info.wp.offset = 0;
-
-        // starting_ino(root inode number) is always number of zones
-        mapping_info.starting_ino = hodo_nr_zones;
 
         // root direcotry inode 설정
         struct hodo_inode root_inode;
@@ -195,7 +193,49 @@ static loff_t hodo_dir_llseek(struct file *filp, loff_t offset, int whence) {
 
 static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 	ZONEFS_TRACE();
-	return zonefs_file_operations.read_iter(iocb, to);
+
+    int file_ino = iocb->ki_filp->f_inode->i_ino;
+
+    // /cnv, /seq인 경우
+    if (file_ino < mapping_info.starting_ino) {
+	    return zonefs_file_operations.read_iter(iocb, to);
+    }
+
+    struct hodo_block_pos file_inode_pos = mapping_info.mapping_table[file_ino - mapping_info.starting_ino];
+    struct hodo_inode file_inode = {0,};
+
+    hodo_read_struct(file_inode_pos, &file_inode, sizeof(struct hodo_inode));
+
+    int file_len = file_inode.file_len;
+    if (file_len == 0) {
+        pr_info("empty file\n");
+        copy_to_iter(0, 0, to);
+        return 0;
+    }
+
+    int n_blocks = 1 + ((file_len-1) / HODO_DATABLOCK_SIZE);
+    int left_bytes_for_last_block = file_len - (HODO_DATABLOCK_SIZE * n_blocks);
+
+    struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+
+    int i = 0;
+    for (i = 0; i < n_blocks - 1; ++i) {
+        struct hodo_block_pos data_block_pos = {file_inode.direct[i].zone_id, file_inode.direct[i].offset};
+        hodo_read_struct(data_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+
+        copy_to_iter(temp_datablock, sizeof(struct hodo_datablock), to);
+    }
+
+    // 마지막 데이터 블럭은 꽉 차있지 않으니까, 따로 처리
+    struct hodo_block_pos data_block_pos = {file_inode.direct[i].zone_id, file_inode.direct[i].offset};
+    hodo_read_struct(data_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+    copy_to_iter(temp_datablock, left_bytes_for_last_block, to);
+
+    kfree(temp_datablock);
+
+    iocb->ki_pos += file_len;
+
+	return file_len;
 }
 
 static ssize_t hodo_file_write_iter(struct kiocb *iocb, struct iov_iter *from) {

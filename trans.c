@@ -673,6 +673,7 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t 
     //kiocb 구성(읽기 요청의 컨텍스트 정보)
     init_sync_kiocb(&kiocb, zone_file);
     kiocb.ki_pos = offset;
+    kiocb.ki_flags = IOCB_DIRECT;
 
     //위 두 정보를 가지고 read_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
@@ -816,6 +817,7 @@ ssize_t hodo_read_on_disk_mapping_info(void) {
     //kiocb 구성(읽기 요청의 컨텍스트 정보)
     init_sync_kiocb(&kiocb, zone_file);
     kiocb.ki_pos = offset;
+    kiocb.ki_flags = IOCB_DIRECT;
 
     //위 두 정보를 가지고 read_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
