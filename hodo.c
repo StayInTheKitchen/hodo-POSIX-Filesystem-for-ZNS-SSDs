@@ -765,9 +765,6 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 	struct inode *inode = d_inode(dentry);
 	int ret;
 
-	if (unlikely(IS_IMMUTABLE(inode)))
-		return -EPERM;
-
 	ret = setattr_prepare(&nop_mnt_idmap, dentry, iattr);
     if (ret) {
     	if (d_inode(dentry) == dentry->d_sb->s_root->d_inode) {
