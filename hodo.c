@@ -214,11 +214,15 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
         return 0;
     }
 
-    int n_blocks = 1 + ((file_len-1) / HODO_DATA_SIZE);
-    int left_bytes_for_last_block = file_len - (HODO_DATA_SIZE * n_blocks);
-    pr_info("n_blocks: %d\tleft_bytes_for_last_block:%d\n", n_blocks, left_bytes_for_last_block);
+    if (iocb->ki_pos == file_len) {
+        pr_info("EOF\n");
+        return 0;
+    }
 
-    return 4;
+    int n_blocks = 1 + ((file_len-1) / HODO_DATA_SIZE);
+    int left_bytes_for_last_block = file_len - (HODO_DATA_SIZE * (n_blocks - 1));
+
+    pr_info("file_len:%d\tn_blocks: %d\tleft_bytes_for_last_block:%d\n", file_len, n_blocks, left_bytes_for_last_block);
 
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
@@ -233,7 +237,7 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
     // 마지막 데이터 블럭은 꽉 차있지 않으니까, 따로 처리
     struct hodo_block_pos data_block_pos = {file_inode.direct[i].zone_id, file_inode.direct[i].offset};
     hodo_read_struct(data_block_pos, temp_datablock, sizeof(struct hodo_datablock));
-    copy_to_iter(temp_datablock + HODO_DATA_START, left_bytes_for_last_block, to);
+    copy_to_iter((char*)temp_datablock + HODO_DATA_START, left_bytes_for_last_block, to);
 
     kfree(temp_datablock);
 
