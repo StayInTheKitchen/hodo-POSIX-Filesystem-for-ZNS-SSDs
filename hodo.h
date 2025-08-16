@@ -17,6 +17,7 @@
 #define HODO_DATABLOCK_SIZE     4096
 #define HODO_SECTOR_SIZE        512
 #define HODO_DATA_START         4
+#define HODO_DATA_SIZE          (HODO_DATABLOCK_SIZE - HODO_DATA_START)
 
 #define HODO_TYPE_REG           0            
 #define HODO_TYPE_DIR           1
