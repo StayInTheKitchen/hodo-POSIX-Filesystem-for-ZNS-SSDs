@@ -172,7 +172,14 @@ static int hodo_file_release(struct inode *inode, struct file *filp) {
 
 static int hodo_file_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
     ZONEFS_TRACE();
-    return zonefs_file_operations.fsync(filp, start, end, datasync);
+
+    int file_ino = filp->f_inode->i_ino;
+
+    if (file_ino < mapping_info.starting_ino) {
+        return zonefs_file_operations.fsync(filp, start, end, datasync);
+    }
+
+    return 0;
 }
 
 static int hodo_file_mmap(struct file *filp, struct vm_area_struct *vma) {
@@ -866,5 +873,3 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
 
     return len;
 }
-
-
