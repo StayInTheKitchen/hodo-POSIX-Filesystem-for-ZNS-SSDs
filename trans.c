@@ -376,6 +376,9 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
                 dir_hodo_inode->i_mtime = current_time(dir);
                 dir_hodo_inode->i_ctime = current_time(dir);
                 
+                //dirent가 삭제되면서 예하 파일 수가 줄어들었으므로, 이를 반영한다
+                dir_hodo_inode->file_len--;
+
                 hodo_write_struct(dir_hodo_inode, sizeof(struct hodo_inode), out_pos);
 
                 kfree(buf_block);
@@ -403,6 +406,9 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
                 dir_hodo_inode->i_atime = current_time(dir);
                 dir_hodo_inode->i_mtime = current_time(dir);
                 dir_hodo_inode->i_ctime = current_time(dir);
+
+                //dirent가 삭제되면서 예하 파일 수가 줄어들었으므로, 이를 반영한다
+                dir_hodo_inode->file_len--;
 
                 hodo_write_struct(dir_hodo_inode, sizeof(struct hodo_inode), out_pos);
                 kfree(buf_block);
