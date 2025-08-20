@@ -12,6 +12,8 @@
 #ifndef __TRANS_H__
 #define __TRANS_H__
 
+/*-----------------------------------------------------------read_iter용 함수 선언------------------------------------------------------------------------------*/
+void  hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock);
 /*-------------------------------------------------------------lookup용 함수 선언-------------------------------------------------------------------------------*/
 uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name);
 uint64_t find_inode_number_from_direct_block(struct hodo_datablock *direct_block, const char *target_name);

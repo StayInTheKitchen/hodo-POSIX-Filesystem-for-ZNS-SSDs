@@ -203,7 +203,6 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 	ZONEFS_TRACE();
 
     int file_ino = iocb->ki_filp->f_inode->i_ino;
-
     // /cnv, /seq인 경우
     if (file_ino < mapping_info.starting_ino) {
 	    return zonefs_file_operations.read_iter(iocb, to);
@@ -215,40 +214,32 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
     hodo_read_struct(file_inode_pos, &file_inode, sizeof(struct hodo_inode));
 
     int file_len = file_inode.file_len;
-    if (file_len == 0) {
-        pr_info("empty file\n");
-        copy_to_iter(0, 0, to);
-        return 0;
-    }
-
     if (iocb->ki_pos == file_len) {
-        pr_info("EOF\n");
         return 0;
     }
-
-    int n_blocks = 1 + ((file_len-1) / HODO_DATA_SIZE);
-    int left_bytes_for_last_block = file_len - (HODO_DATA_SIZE * (n_blocks - 1));
+    
+    int n_blocks = 1 + ((file_len-1) / HODO_DATA_SIZE); // 읽을 블럭의 개수
+    int left_bytes_for_last_block = file_len - (HODO_DATA_SIZE * (n_blocks - 1)); // 마지막 블럭에서 읽을 바이트 수
 
     pr_info("file_len:%d\tn_blocks: %d\tleft_bytes_for_last_block:%d\n", file_len, n_blocks, left_bytes_for_last_block);
 
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     int i = 0;
-    for (i = 0; i < n_blocks - 1; ++i) {
-        struct hodo_block_pos data_block_pos = {file_inode.direct[i].zone_id, file_inode.direct[i].offset};
-        hodo_read_struct(data_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+    while (i < n_blocks-1) {
+        hodo_read_nth_block(&file_inode, i, temp_datablock);
+        copy_to_iter((char*)temp_datablock + HODO_DATA_START, HODO_DATA_SIZE, to);
+        iocb->ki_pos += sizeof(struct hodo_datablock);
 
-        copy_to_iter(temp_datablock, sizeof(struct hodo_datablock), to);
+        i++;
     }
 
-    // 마지막 데이터 블럭은 꽉 차있지 않으니까, 따로 처리
-    struct hodo_block_pos data_block_pos = {file_inode.direct[i].zone_id, file_inode.direct[i].offset};
-    hodo_read_struct(data_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+    // 마지막 블럭 읽기
+    hodo_read_nth_block(&file_inode, i, temp_datablock);
     copy_to_iter((char*)temp_datablock + HODO_DATA_START, left_bytes_for_last_block, to);
+    iocb->ki_pos += left_bytes_for_last_block;
 
     kfree(temp_datablock);
-
-    iocb->ki_pos += file_len;
 
 	return file_len;
 }
@@ -403,6 +394,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     // 여기까지 hinode 초기화: 함수로 리팩터링
 
     add_dirent(dir, &hinode);
+    dir->i_size++;
 
     inode->i_ino  = hinode.i_ino;
     inode->i_sb   = dir->i_sb;
@@ -506,7 +498,7 @@ static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry 
     hinode.magic[2] = 'O';
     hinode.magic[3] = 'D';
 
-    hinode.file_len = 0;
+    hinode.file_len = 2;
 
     hinode.name_len = dentry->d_name.len; 
     if (hinode.name_len > HODO_MAX_NAME_LEN) {
@@ -537,6 +529,7 @@ static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry 
 
     add_dirent(dir, &hinode);
 
+    inode->i_size = 2;
     inode->i_ino  = hinode.i_ino;
     inode->i_sb   = dir->i_sb;
     inode->i_op   = &hodo_dir_inode_operations;

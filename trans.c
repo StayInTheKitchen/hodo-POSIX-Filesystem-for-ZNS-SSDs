@@ -18,6 +18,43 @@ static bool hodo_dir_emit(struct dir_context *ctx, struct hodo_dirent *temp_dire
 static void hodo_set_bitmap(int i, int j);
 static void hodo_unset_bitmap(int i, int j);
 
+/*-----------------------------------------------------------read_iter용 함수------------------------------------------------------------------------------*/
+// file_inode에서 n번째 datablock을 dst_datablock으로 copy
+void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock) {
+    ZONEFS_TRACE();
+    int num_direct_block = sizeof(file_inode->direct) / sizeof((file_inode->direct)[0]);  // direct block의 개수
+    int num_block_pos_in_indirect_block = HODO_DATA_SIZE / sizeof(struct hodo_block_pos);
+
+    if (n < num_direct_block) { // direct block
+        pr_info("read direct block\n");
+        struct hodo_block_pos data_block_pos = {file_inode->direct[n].zone_id, file_inode->direct[n].offset};
+        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+    }
+    else if (n < (num_direct_block + num_block_pos_in_indirect_block)) {    // single indirect block
+        pr_info("read single indirect block\n");
+        int nth_in_direct_block = n - num_direct_block;
+        struct hodo_block_pos direct_block_pos = {file_inode->single_indirect.zone_id, file_inode->single_indirect.offset};
+        struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+        hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));  // read direct block
+
+        struct hodo_block_pos data_block_pos = {0, };
+        memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
+
+        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+
+        kfree(temp_datablock);
+    }
+    else if (n < (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block))) {    // double indirect block
+        pr_info("read double indirect block\n");
+        // TODO: single이나 double이나 똑같음... 근데 귀찮아...
+    }
+    else {  // triple indirect block
+        pr_info("read triple indirect block\n");
+
+    }
+    return;
+}
+
 /*-------------------------------------------------------------lookup용 함수----------------------------------------------------------------------------------*/
 uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name) {
     ZONEFS_TRACE();
@@ -299,6 +336,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
                     memcpy((void*)temp_datablock + j, &temp_dirent, sizeof(struct hodo_dirent));
 
+                    dir_inode.file_len++;
                     dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
                     dir_inode.direct[i].offset = mapping_info.wp.offset;
                     hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), NULL);
@@ -327,6 +365,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
             memcpy((void*)temp_datablock + 4, &temp_dirent, sizeof(struct hodo_dirent));
 
+            dir_inode.file_len++;
             dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
             dir_inode.direct[i].offset = mapping_info.wp.offset;
             hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), NULL);
