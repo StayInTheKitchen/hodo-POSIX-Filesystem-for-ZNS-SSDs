@@ -649,6 +649,195 @@ bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_b
     return EMPTY_CHECKED;
 }
 
+/*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
+ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
+    ZONEFS_TRACE();
+
+    //write iter의 대상은 a.txt와 같은 일반 파일이므로, 해당 아이노드는 절대로 루트 디렉토리 아이노드일 수가 없다.
+    //따라서 굳이 타겟 아이노드가 루트 아이노드인지를 확인해서 매핑 인덱스 0번을 수동으로 할당할 필요가 없다.
+    struct inode *target_inode = iocb->ki_filp->f_inode;
+    uint64_t target_ino = target_inode->i_ino;
+    uint64_t target_mapping_index = target_ino - mapping_info.starting_ino;
+
+    //타겟 파일의 아이노드를 불러오기.
+    struct hodo_inode target_hodo_inode;
+    struct hodo_block_pos target_inode_pos;
+
+    target_inode_pos = mapping_info.mapping_table[target_mapping_index];
+    hodo_read_struct(target_inode_pos, &target_hodo_inode, sizeof(struct hodo_inode));
+
+    if (iocb->ki_flags & IOCB_APPEND)
+        iocb->ki_pos = i_size_read(target_inode);
+    pr_info("zonefs: write_iter original target offset is %d, new i_size is %d\n", iocb->ki_pos, target_inode->i_size);
+    
+    //어디에다가 파일을 쓸지를 추가한다.
+    struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+    if (temp_block == NULL) {
+        pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
+        return -ENOMEM;
+    }
+
+    loff_t offset = iocb->ki_pos;
+
+    loff_t data_block_index = offset / HODO_DATA_SIZE;
+    uint64_t direct_blocks_in_hodo_inode            = 10;
+    uint64_t direct_blocks_in_single_indirect_block = HODO_DATA_SIZE/sizeof(struct hodo_block_pos);
+    uint64_t direct_blocks_in_double_indirect_block = direct_blocks_in_single_indirect_block * direct_blocks_in_single_indirect_block;
+    uint64_t direct_blocks_in_triple_indirect_block = direct_blocks_in_double_indirect_block * direct_blocks_in_single_indirect_block;
+
+    size_t written_size = 0;
+    if(data_block_index < 10){
+        //direct_data_block(0~9)에 쓸 위치가 존재
+        pr_info("zonefs: write_iter in direct_data_block\n");
+
+        hodo_read_struct(target_hodo_inode.direct[data_block_index], temp_block, HODO_DATABLOCK_SIZE);
+
+        struct hodo_block_pos written_pos = {0, 0};
+        written_size = write_target_to_direct_block(iocb, from, &written_pos, temp_block);
+
+        target_hodo_inode.direct[data_block_index] = written_pos;
+        target_hodo_inode.file_len += written_size;
+    } 
+    else if(data_block_index <10 + direct_blocks_in_single_indirect_block){
+        //singe_indirect_data_block에 쓸 위치가 존재
+        pr_info("zonefs: write_iter in single_indirect_data_block\n");
+
+        hodo_read_struct(target_hodo_inode.single_indirect, temp_block, HODO_DATABLOCK_SIZE);
+
+        struct hodo_block_pos written_pos = {0, 0};
+        written_size = write_target_to_indirect_block(iocb, from, &written_pos, temp_block);
+
+        target_hodo_inode.single_indirect = written_pos;
+        target_hodo_inode.file_len += written_size;
+    }
+    else if(data_block_index < 10 + direct_blocks_in_single_indirect_block + direct_blocks_in_double_indirect_block){
+        //double_indirect_data_block에 쓸 위치가 존재
+        pr_info("zonefs: write_iter in double_indirect_data_block\n");
+
+        hodo_read_struct(target_hodo_inode.double_indirect, temp_block, HODO_DATABLOCK_SIZE);
+
+        struct hodo_block_pos written_pos = {0, 0};
+        written_size = write_target_to_indirect_block(iocb, from, &written_pos, temp_block);
+
+        target_hodo_inode.double_indirect = written_pos;
+        target_hodo_inode.file_len += written_size;
+    }
+    else if(data_block_index < 10 + direct_blocks_in_single_indirect_block + direct_blocks_in_double_indirect_block + direct_blocks_in_triple_indirect_block){
+        //triple_indirect_data_block에 쓸 위치가 존재
+        pr_info("zonefs: write_iter in triple_indirect_data_block\n");
+
+        hodo_read_struct(target_hodo_inode.triple_indirect, temp_block, HODO_DATABLOCK_SIZE);
+
+        struct hodo_block_pos written_pos = {0, 0};
+        written_size = write_target_to_indirect_block(iocb, from, &written_pos, temp_block);
+
+        target_hodo_inode.triple_indirect = written_pos;
+        target_hodo_inode.file_len += written_size;
+    }
+    else {
+        //파일시스템 상 파일의 최대 크기를 넘어선 오프셋에는 쓰기가 불가능 하다
+        pr_info("zonefs: write_iter over the triple_indirect_data_block. we cannot do it.\n");
+        kfree(temp_block);
+        return -EFBIG;
+    }
+
+    //데이터 블록이 새로 써졌으므로, 파일의 hodo 아이노드도 새로 쓰도록 한다
+    struct hodo_block_pos inode_written_pos = {0, 0};
+    hodo_write_struct(&target_hodo_inode, sizeof(struct hodo_inode), &inode_written_pos);
+    mapping_info.mapping_table[target_mapping_index] = inode_written_pos;
+
+    //실제로 쓰기가 수행된 길이를 반환한다. 만약 이것이 요청된 쓰기 길이에 미치지 못한다면, VFS는 나머지 부분을 재호출 할 것이다.
+    kfree(temp_block);
+
+    iocb->ki_pos += written_size;
+    i_size_write(target_inode, iocb->ki_pos);
+    pr_info("zonefs: write_iter new target offset is %d, new i_size is %d\n", iocb->ki_pos, target_inode->i_size);
+    return written_size;
+}
+
+ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *left_over){
+    ZONEFS_TRACE();
+
+    struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+    if (temp_block == NULL) {
+        pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
+        return -ENOMEM;
+    }
+
+    temp_block->magic[0] = 'D';
+    temp_block->magic[1] = 'A';
+    temp_block->magic[2] = 'T';
+    temp_block->magic[3] = '0';
+
+    loff_t offset = iocb->ki_pos;
+    uint64_t len = iov_iter_count(from);
+
+    //쓰고자 하는 데이터를 실제로 데이터 블록에다가 쓴다. 단, 우리가 이 함수 한 번에서 쓰는 양은 한 블록을 넘지 않는다.
+    //쓰려고 하는 데이터 양이 데이터 블락을 넘어서는 경우는, VFS가 알아서 쓰기 잔여량을 보고서 재호출하는 기능에 의지하도록 한다.
+    struct hodo_block_pos written_pos = {0, 0};
+    uint64_t left_len = offset % HODO_DATA_SIZE;
+    if((left_len != 0) && left_over != NULL) {
+        //마지막 블럭에 이전에 쓰인 데이터(left_over)가 있다면, 이들을 새로 쓸 데이터랑 합쳐서 쓰도록 한다.
+        pr_info("zonefs: write_iter with left_over\n");
+        memcpy(temp_block->data, left_over, left_len);
+
+        if(len + left_len >= HODO_DATA_SIZE){
+            //left_over를 합쳐서 쓰려고 하는 데이터가 데이터 블럭을 넘어선다면 하나의 블럭 크기만 쓴다.
+            if(copy_from_iter((void *)(temp_block->data) + left_len, HODO_DATA_SIZE - left_len, from) != HODO_DATA_SIZE - left_len){
+                kfree(temp_block);
+                return -EFAULT;
+            }
+
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            kfree(temp_block);
+            return HODO_DATA_SIZE - left_len;
+        }
+        else {
+            //left_over을 합쳐서 쓰려고 하는 데이터가 데이터 블럭 크기 이내라면 그만큼만 쓴다.
+            if(copy_from_iter((void *)(temp_block->data) + left_len, len, from) != len){
+                kfree(temp_block);
+                return -EFAULT;
+            }
+
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            kfree(temp_block);
+            return len;
+        }
+    }
+    else {
+        //쓰려고 하는 블록이 깔끔하다면, 새로 쓰고자 하는 내용만 쓴다.
+        pr_info("zonefs: write_iter without left_over\n");
+        if(len >= HODO_DATA_SIZE){
+            //쓰려고 하는 데이터가 데이터 블럭을 넘어선다면 하나의 블럭 크기만 쓴다.
+            if(copy_from_iter(temp_block->data, HODO_DATA_SIZE, from) != HODO_DATA_SIZE){
+                kfree(temp_block);
+                return -EFAULT;
+            }
+
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            kfree(temp_block);
+            return HODO_DATA_SIZE;
+        }
+        else {
+            //쓰려고 하는 데이터가 데이터 블럭 크기 이내라면 그만큼만 쓴다.
+            if(copy_from_iter(temp_block->data, len, from) != len){
+                kfree(temp_block);
+                return -EFAULT;
+            }
+
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            kfree(temp_block);
+            return len;
+        }
+    }
+}
+
+ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *block_poses){
+    ZONEFS_TRACE();
+
+    return 0;
+}
+
 /*-------------------------------------------------------------비트맵용 함수-------------------------------------------------------------------------------*/
 static void hodo_set_bitmap(int i, int j) {
     mapping_info.bitmap[i] |= (1 << (31 - j));

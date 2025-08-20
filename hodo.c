@@ -793,76 +793,8 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 	return 0;
 }
 
-//TODO1 : indirect data block에서의 write 지원하기
-//TODO2 : 마지막 유효한 데이터블럭이 꽉차지 않은 경우, 해당 데이터와 새로 쓸 데이터를 합쳐서 압축해 쓰는 것을 지원하기
 static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *from){
     ZONEFS_TRACE();
-
-    //write iter의 대상은 a.txt와 같은 일반 파일이므로, 해당 아이노드는 절대로 루트 디렉토리 아이노드일 수가 없다.
-    //따라서 굳이 타겟 아이노드가 루트 아이노드인지를 확인해서 매핑 인덱스 0번을 수동으로 할당할 필요가 없다.
-    struct inode *target_inode = iocb->ki_filp->f_inode;
-    uint64_t target_ino = target_inode->i_ino;
-    uint64_t target_mapping_index = target_ino - mapping_info.starting_ino;
-
-    //타겟 파일의 아이노드를 불러오기.
-    struct hodo_inode target_hodo_inode;
-    struct hodo_block_pos target_inode_pos;
-
-    target_inode_pos = mapping_info.mapping_table[target_mapping_index];
-    hodo_read_struct(target_inode_pos, &target_hodo_inode, sizeof(struct hodo_inode));
     
-    //타겟 파일에서 쓸 Direct Data Block의 인덱스(0-based)를 찾기
-    int data_block_index = target_hodo_inode.file_len / 4092;
-    // if(data_block_index >= 10){
-    //     pr_info("zonefs: write_iter in the indirect data block is not yet implemented\n");
-    //     //TODO1
-    //     return 0;
-    // }
-
-    // //꽉차지 않은 마지막 블럭에 데이터가 있다면, 이들을 새로 쓸 데이터랑 합치도록 한다.
-    // int last_block_used_size = target_hodo_inode.file_len % 4096;
-    // if(last_block_used_size != 0){
-    //     pr_info("zonefs: write_iter when merge is needed is not yet implemented\n");
-    //     //TODO2
-    //     return 0;
-    // }
-
-    //쓰고자 하는 내용을 iov_iter로부터 읽어와서 이를 블록 크기 단위로, data block index 위치의 block pos가 가리키는 곳에 쓴다.
-    struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
-    if (temp_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
-        return -ENOMEM;
-    }
-
-    int len = iov_iter_count(from);
-    struct hodo_block_pos datablock_written_pos = {0, 0};
-    struct hodo_block_pos inode_written_pos = {0, 0};
-    // while(len > 0 && data_block_index < 10){
-        temp_block->magic[0] = 'D';
-        temp_block->magic[1] = 'A';
-        temp_block->magic[2] = 'T';
-        temp_block->magic[3] = '0';
-        //TODO1
-
-        if(len >= HODO_DATA_SIZE){
-            if(copy_from_iter(temp_block->data, HODO_DATA_SIZE, from) != HODO_DATA_SIZE)
-                return -EFAULT;
-            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &datablock_written_pos);
-            target_hodo_inode.file_len += HODO_DATA_SIZE;         
-        }
-        else {
-            if(copy_from_iter(temp_block->data, len, from) != len)
-                return -EFAULT;
-            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &datablock_written_pos);
-            target_hodo_inode.file_len += len;
-        }
-
-        target_hodo_inode.direct[data_block_index] = datablock_written_pos;
-        hodo_write_struct(&target_hodo_inode, sizeof(struct hodo_inode), &inode_written_pos);
-        mapping_info.mapping_table[target_mapping_index] = inode_written_pos;
-
-        data_block_index++;
-    // }
-
-    return len;
+    return write_target(iocb, from);
 }

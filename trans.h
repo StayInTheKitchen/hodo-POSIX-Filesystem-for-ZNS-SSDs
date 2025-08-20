@@ -37,6 +37,11 @@ bool check_directory_empty(struct dentry *dentry);
 bool check_directory_empty_from_direct_block(struct hodo_datablock *direct_block);
 bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_block);
 
+/*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
+ssize_t write_target(struct kiocb *iocb, struct iov_iter *from);
+ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *left_over);
+ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *block_poses);
+
 /*-------------------------------------------------------------비트맵용 함수 선언---------------------------------------------------------------------------------*/
 int hodo_get_next_ino(void);
 int hodo_erase_table_entry(int table_entry_index);
