@@ -695,6 +695,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         struct hodo_block_pos written_pos = {0, 0};
         written_size = write_target_to_direct_block(iocb, from, &written_pos, temp_block);
 
+        pr_info("zonefs: write_iter %dth datablock written pos is (zone_id : %d, offset : %d)\n", data_block_index, written_pos.zone_id, written_pos.offset);
         target_hodo_inode.direct[data_block_index] = written_pos;
         target_hodo_inode.file_len += written_size;
     } 
@@ -744,6 +745,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
     //데이터 블록이 새로 써졌으므로, 파일의 hodo 아이노드도 새로 쓰도록 한다
     struct hodo_block_pos inode_written_pos = {0, 0};
     hodo_write_struct(&target_hodo_inode, sizeof(struct hodo_inode), &inode_written_pos);
+    pr_info("zonefs: write_iter %dth inode written pos is (zone_id : %d, offset : %d)\n", target_mapping_index, inode_written_pos.zone_id, inode_written_pos.offset);
     mapping_info.mapping_table[target_mapping_index] = inode_written_pos;
 
     //실제로 쓰기가 수행된 길이를 반환한다. 만약 이것이 요청된 쓰기 길이에 미치지 못한다면, VFS는 나머지 부분을 재호출 할 것이다.
@@ -774,12 +776,11 @@ ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, 
 
     //쓰고자 하는 데이터를 실제로 데이터 블록에다가 쓴다. 단, 우리가 이 함수 한 번에서 쓰는 양은 한 블록을 넘지 않는다.
     //쓰려고 하는 데이터 양이 데이터 블락을 넘어서는 경우는, VFS가 알아서 쓰기 잔여량을 보고서 재호출하는 기능에 의지하도록 한다.
-    struct hodo_block_pos written_pos = {0, 0};
     uint64_t left_len = offset % HODO_DATA_SIZE;
     if((left_len != 0) && left_over != NULL) {
         //마지막 블럭에 이전에 쓰인 데이터(left_over)가 있다면, 이들을 새로 쓸 데이터랑 합쳐서 쓰도록 한다.
         pr_info("zonefs: write_iter with left_over\n");
-        memcpy(temp_block->data, left_over, left_len);
+        memcpy(temp_block->data, left_over->data, left_len);
 
         if(len + left_len >= HODO_DATA_SIZE){
             //left_over를 합쳐서 쓰려고 하는 데이터가 데이터 블럭을 넘어선다면 하나의 블럭 크기만 쓴다.
@@ -788,7 +789,7 @@ ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, 
                 return -EFAULT;
             }
 
-            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, out_pos);
             kfree(temp_block);
             return HODO_DATA_SIZE - left_len;
         }
@@ -799,7 +800,7 @@ ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, 
                 return -EFAULT;
             }
 
-            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, out_pos);
             kfree(temp_block);
             return len;
         }
@@ -814,7 +815,7 @@ ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, 
                 return -EFAULT;
             }
 
-            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, out_pos);
             kfree(temp_block);
             return HODO_DATA_SIZE;
         }
@@ -825,7 +826,7 @@ ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, 
                 return -EFAULT;
             }
 
-            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, &written_pos);
+            hodo_write_struct(temp_block, HODO_DATABLOCK_SIZE, out_pos);
             kfree(temp_block);
             return len;
         }
