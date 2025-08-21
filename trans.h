@@ -14,6 +14,12 @@
 
 /*-----------------------------------------------------------read_iter용 함수 선언------------------------------------------------------------------------------*/
 void  hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock);
+
+/*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
+ssize_t write_target(struct kiocb *iocb, struct iov_iter *from);
+ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_direct_block);
+ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_indirect_block);
+
 /*-------------------------------------------------------------lookup용 함수 선언-------------------------------------------------------------------------------*/
 uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name);
 uint64_t find_inode_number_from_direct_block(struct hodo_datablock *direct_block, const char *target_name);
@@ -36,11 +42,6 @@ int remove_dirent_from_indirect_block(struct hodo_datablock *indirect_block, con
 bool check_directory_empty(struct dentry *dentry);
 bool check_directory_empty_from_direct_block(struct hodo_datablock *direct_block);
 bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_block);
-
-/*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
-ssize_t write_target(struct kiocb *iocb, struct iov_iter *from);
-ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *left_over);
-ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *block_poses);
 
 /*-------------------------------------------------------------비트맵용 함수 선언---------------------------------------------------------------------------------*/
 int hodo_get_next_ino(void);
