@@ -33,24 +33,67 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
     else if (n < (num_direct_block + num_block_pos_in_indirect_block)) {    // single indirect block
         pr_info("read single indirect block\n");
         int nth_in_direct_block = n - num_direct_block;
-        struct hodo_block_pos direct_block_pos = {file_inode->single_indirect.zone_id, file_inode->single_indirect.offset};
+
         struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+        struct hodo_block_pos direct_block_pos = {file_inode->single_indirect.zone_id, file_inode->single_indirect.offset};
         hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));  // read direct block
 
         struct hodo_block_pos data_block_pos = {0, };
         memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-
         hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
 
         kfree(temp_datablock);
     }
     else if (n < (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block))) {    // double indirect block
         pr_info("read double indirect block\n");
-        // TODO: single이나 double이나 똑같음... 근데 귀찮아...
+        int nth_in_single_indirect_block = (n - (num_direct_block + num_block_pos_in_indirect_block)) / num_block_pos_in_indirect_block;
+        int nth_in_direct_block = (n - (num_direct_block + num_block_pos_in_indirect_block)) % num_block_pos_in_indirect_block;
+
+        struct hodo_datablock *temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+        struct hodo_block_pos single_indirect_block_pos = {file_inode->double_indirect.zone_id, file_inode->double_indirect.offset};
+        hodo_read_struct(single_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+
+        struct hodo_block_pos direct_block_pos = {0, };
+        memcpy(&direct_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_single_indirect_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
+        hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+
+        struct hodo_block_pos data_block_pos = {0, };
+        memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
+        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+
+        kfree(temp_datablock);
     }
     else {  // triple indirect block
         pr_info("read triple indirect block\n");
+        int nth_in_double_indirect_block = (n - (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block)));
+        nth_in_double_indirect_block /= (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block);
 
+        int nth_in_single_indirect_block = (n - (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block)));
+        nth_in_single_indirect_block %= (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block);
+        nth_in_single_indirect_block /= num_block_pos_in_indirect_block;
+
+        int nth_in_direct_block = (n - (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block)));
+        nth_in_direct_block %= (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block); 
+        nth_in_direct_block %= num_block_pos_in_indirect_block;
+
+        struct hodo_datablock *temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
+
+        struct hodo_block_pos double_indirect_block_pos = {file_inode->triple_indirect.zone_id, file_inode->triple_indirect.offset};
+        hodo_read_struct(double_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+
+        struct hodo_block_pos single_indirect_block_pos = {0, };
+        memcpy(&single_indirect_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_double_indirect_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
+        hodo_read_struct(single_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+
+        struct hodo_block_pos direct_block_pos = {0, };
+        memcpy(&direct_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_single_indirect_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
+        hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+
+        struct hodo_block_pos data_block_pos = {0, };
+        memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
+        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+
+        kfree(temp_datablock);
     }
     return;
 }

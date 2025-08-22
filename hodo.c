@@ -214,7 +214,8 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
     hodo_read_struct(file_inode_pos, &file_inode, sizeof(struct hodo_inode));
 
     int file_len = file_inode.file_len;
-    if (iocb->ki_pos == file_len) {
+    pr_info("ki_pos: %d\n", iocb->ki_pos);
+    if (iocb->ki_pos >= file_len) {
         return 0;
     }
     
@@ -229,7 +230,7 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
     while (i < n_blocks-1) {
         hodo_read_nth_block(&file_inode, i, temp_datablock);
         copy_to_iter((char*)temp_datablock + HODO_DATA_START, HODO_DATA_SIZE, to);
-        iocb->ki_pos += sizeof(struct hodo_datablock);
+        iocb->ki_pos += HODO_DATA_SIZE;
 
         i++;
     }
