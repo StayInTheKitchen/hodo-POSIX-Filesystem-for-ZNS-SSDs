@@ -154,7 +154,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
 
         pr_info("zonefs: write_iter %dth datablock written pos is (zone_id : %d, offset : %d)\n", data_block_index, written_pos.zone_id, written_pos.offset);
         target_hodo_inode.direct[data_block_index] = written_pos;
-        target_hodo_inode.file_len += written_size;
+        target_hodo_inode.file_len = iocb->ki_pos + written_size;
     } 
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block){
         //singe_indirect_data_block에 쓸 위치가 존재
@@ -173,7 +173,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
 
         target_hodo_inode.single_indirect = written_pos;
-        target_hodo_inode.file_len += written_size;
+        target_hodo_inode.file_len = iocb->ki_pos + written_size;
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block){
         //double_indirect_data_block에 쓸 위치가 존재
@@ -192,7 +192,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
 
         target_hodo_inode.double_indirect = written_pos;
-        target_hodo_inode.file_len += written_size;
+        target_hodo_inode.file_len = iocb->ki_pos + written_size;
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block + num_of_direct_blocks_in_triple_indirect_block){
         //triple_indirect_data_block에 쓸 위치가 존재
@@ -211,7 +211,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
 
         target_hodo_inode.triple_indirect = written_pos;
-        target_hodo_inode.file_len += written_size;
+        target_hodo_inode.file_len = iocb->ki_pos + written_size;
     }
     else {
         //파일시스템 상 파일의 최대 크기를 넘어선 오프셋에는 쓰기가 불가능 하다
