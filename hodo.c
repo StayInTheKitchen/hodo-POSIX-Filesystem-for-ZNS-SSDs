@@ -17,7 +17,9 @@
 #include "hodo.h"
 #include "trans.h"
 /*----------------------------------------------------------파일 오퍼레이션 함수 선언----------------------------------------------------------------------------------*/
-//nothing
+static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to);
+static ssize_t hodo_file_write_iter(struct kiocb *iocb, struct iov_iter *from);
+static int hodo_readdir(struct file *file, struct dir_context *ctx);
 
 /*----------------------------------------------------------아이노드 오퍼레이션 함수 선언-------------------------------------------------------------------------------*/
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr);
