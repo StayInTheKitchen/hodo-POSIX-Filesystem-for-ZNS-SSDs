@@ -799,5 +799,18 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *from){
     ZONEFS_TRACE();
     
-    return write_target(iocb, from);
+    uint64_t len = iov_iter_count(from);
+    ssize_t total_written_size = 0;
+    ssize_t temp_written_size = 0;
+
+    while(total_written_size < len){
+        temp_written_size =  write_one_block(iocb, from);
+
+        if(temp_written_size < 0)
+            return temp_written_size;
+        else
+            total_written_size += temp_written_size;
+    }
+    
+    return total_written_size;
 }

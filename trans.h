@@ -16,9 +16,9 @@
 void  hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock);
 
 /*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
-ssize_t write_target(struct kiocb *iocb, struct iov_iter *from);
-ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_direct_block);
-ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_indirect_block);
+ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from);
+ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_direct_block);
+ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_indirect_block);
 
 /*-------------------------------------------------------------lookup용 함수 선언-------------------------------------------------------------------------------*/
 uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name);

@@ -99,7 +99,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
 }
 
 /*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
-ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
+ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     ZONEFS_TRACE();
 
     //write iter의 대상은 a.txt와 같은 일반 파일이므로, 해당 아이노드는 절대로 루트 디렉토리 아이노드일 수가 없다.
@@ -150,7 +150,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         }
 
         struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_target_to_direct_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_direct_block(iocb, from, &written_pos, target_block);
 
         pr_info("zonefs: write_iter %dth datablock written pos is (zone_id : %d, offset : %d)\n", data_block_index, written_pos.zone_id, written_pos.offset);
         target_hodo_inode.direct[data_block_index] = written_pos;
@@ -170,7 +170,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         }
 
         struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
 
         target_hodo_inode.single_indirect = written_pos;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
@@ -189,7 +189,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         }
 
         struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
 
         target_hodo_inode.double_indirect = written_pos;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
@@ -208,7 +208,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
         }
 
         struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
 
         target_hodo_inode.triple_indirect = written_pos;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
@@ -235,7 +235,7 @@ ssize_t write_target(struct kiocb *iocb, struct iov_iter *from){
     return written_size;
 }
 
-ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_direct_block){
+ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_direct_block){
     ZONEFS_TRACE();
 
     struct hodo_datablock *target_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -311,7 +311,7 @@ ssize_t write_target_to_direct_block(struct kiocb *iocb, struct iov_iter *from, 
     }
 }
 
-ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_indirect_block){
+ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_indirect_block){
     ZONEFS_TRACE();
 
     //offset을 통해서, 현재 indirect_block 속에 나열 된 block_pos중 무엇을 사용해야 할지 알아낸다.
@@ -367,14 +367,14 @@ ssize_t write_target_to_indirect_block(struct kiocb *iocb, struct iov_iter *from
         target_block->magic[3] = current_indirect_block->magic[3] - 1;
     }
 
-    //호출할 함수가 write_target_to_indirect_block인지, write_target_to_direct_block인지를 분간해서 재귀를 호출한다.
+    //호출할 함수가 write_one_block_by_indirect_block인지, write_one_block_by_direct_block인지를 분간해서 재귀를 호출한다.
     //분간하기 위해서 유효한 target_block이라면 magic을 확인한다.
     struct hodo_block_pos written_pos = {0, 0};
     ssize_t written_size = 0;
     if(is_directblock(target_block))
-        written_size = write_target_to_direct_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_direct_block(iocb, from, &written_pos, target_block);
     else
-        written_size = write_target_to_indirect_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
 
     //아래 차수의 데이터 블록이 새로 써졌으니, 이를 가리키는 block pos도 새 것으로 대체해서 현재 데이터 블록도 새로 쓰고서 그 위치를 상위 함수에 반환하여야 한다.
     if (written_size > 0 && is_block_pos_valid(written_pos)){
