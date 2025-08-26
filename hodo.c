@@ -207,6 +207,7 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
     int file_ino = iocb->ki_filp->f_inode->i_ino;
     // /cnv, /seq인 경우
     if (file_ino < mapping_info.starting_ino) {
+        pr_info("seq ki_pos: %d\n", iocb->ki_pos);
 	    return zonefs_file_operations.read_iter(iocb, to);
     }
 
@@ -215,36 +216,61 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 
     hodo_read_struct(file_inode_pos, &file_inode, sizeof(struct hodo_inode));
 
-    int file_len = file_inode.file_len;
     pr_info("ki_pos: %d\n", iocb->ki_pos);
-    if (iocb->ki_pos >= file_len) {
+    pr_info("iov_iter count: %d\n", iov_iter_count(to));
+
+    // 읽을 길이 min(파일 끝 - 요청 시작 길이, 요청 길이)
+    int read_len = (file_inode.file_len - iocb->ki_pos); 
+    if (iov_iter_count(to) < read_len) {
+        read_len = iov_iter_count(to);
+    }
+
+    // EOF
+    if (iocb->ki_pos >= file_inode.file_len) {
         return 0;
     }
     
-    int n_blocks = 1 + ((file_len-1) / HODO_DATA_SIZE); // 읽을 블럭의 개수
-    int left_bytes_for_last_block = file_len - (HODO_DATA_SIZE * (n_blocks - 1)); // 마지막 블럭에서 읽을 바이트 수
-
-    pr_info("file_len:%d\tn_blocks: %d\tleft_bytes_for_last_block:%d\n", file_len, n_blocks, left_bytes_for_last_block);
+    int start_block = (iocb->ki_pos) / HODO_DATA_SIZE; 
+    int end_block = (iocb->ki_pos + read_len) / HODO_DATA_SIZE;
 
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
-    int i = 0;
-    while (i < n_blocks-1) {
-        hodo_read_nth_block(&file_inode, i, temp_datablock);
-        copy_to_iter((char*)temp_datablock + HODO_DATA_START, HODO_DATA_SIZE, to);
-        iocb->ki_pos += HODO_DATA_SIZE;
+    int cur_block = start_block;
 
-        i++;
+    int offset_in_start_block = (iocb->ki_pos % HODO_DATA_SIZE);
+    int bytes_in_start_block = HODO_DATA_SIZE - offset_in_start_block;
+    int bytes_in_end_block = (iocb->ki_pos + read_len) % HODO_DATA_SIZE; 
+
+    if (start_block != end_block) {
+        hodo_read_nth_block(&file_inode, cur_block, temp_datablock);
+        copy_to_iter((char*)temp_datablock + HODO_DATA_START + offset_in_start_block, bytes_in_start_block, to);
+        iocb->ki_pos += bytes_in_start_block;
+        cur_block++;
+    }
+    else {
+        hodo_read_nth_block(&file_inode, cur_block, temp_datablock);
+        copy_to_iter((char*)temp_datablock + HODO_DATA_START + offset_in_start_block, read_len, to);
+        iocb->ki_pos += read_len;
+        return read_len;
     }
 
-    // 마지막 블럭 읽기
-    hodo_read_nth_block(&file_inode, i, temp_datablock);
-    copy_to_iter((char*)temp_datablock + HODO_DATA_START, left_bytes_for_last_block, to);
-    iocb->ki_pos += left_bytes_for_last_block;
+
+    while (cur_block < end_block) {
+        hodo_read_nth_block(&file_inode, cur_block, temp_datablock);
+        copy_to_iter((char*)temp_datablock + HODO_DATA_START, HODO_DATA_SIZE, to);
+        iocb->ki_pos += HODO_DATA_SIZE;
+        cur_block++;
+    }
+
+    if (cur_block == end_block) {
+        hodo_read_nth_block(&file_inode, cur_block, temp_datablock);
+        copy_to_iter((char*)temp_datablock + HODO_DATA_START, bytes_in_end_block, to);
+        iocb->ki_pos += bytes_in_end_block;
+    }
 
     kfree(temp_datablock);
 
-	return file_len;
+	return read_len;
 }
 
 static ssize_t hodo_file_write_iter(struct kiocb *iocb, struct iov_iter *from) {
