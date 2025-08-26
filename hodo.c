@@ -160,7 +160,7 @@ static ssize_t hodo_read_dir(struct file *file, char __user *buf, size_t count, 
 }
 
 static int hodo_file_release(struct inode *inode, struct file *filp) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct dentry *dentry = filp->f_path.dentry;
     const char *parent = dentry->d_parent->d_name.name;
