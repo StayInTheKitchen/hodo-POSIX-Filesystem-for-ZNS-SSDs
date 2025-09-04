@@ -15,8 +15,8 @@
 #include "trans.h"
 /*-------------------------------------------------------------static 함수 선언-------------------------------------------------------------------------------*/
 static bool hodo_dir_emit(struct dir_context *ctx, struct hodo_dirent *temp_dirent);
-static void hodo_set_bitmap(int i, int j);
-static void hodo_unset_bitmap(int i, int j);
+static void hodo_set_logical_bitmap(int i, int j);
+static void hodo_unset_logical_bitmap(int i, int j);
 
 /*-----------------------------------------------------------read_iter용 함수------------------------------------------------------------------------------*/
 // file_inode에서 n번째 datablock을 dst_datablock으로 copy
@@ -27,7 +27,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
 
     if (n < num_direct_block) { // direct block
         pr_info("read direct block\n");
-        struct hodo_block_pos data_block_pos = {file_inode->direct[n].zone_id, file_inode->direct[n].offset};
+        struct hodo_block_pos data_block_pos = {file_inode->direct[n].zone_id, file_inode->direct[n].block_index};
         hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
     }
     else if (n < (num_direct_block + num_block_pos_in_indirect_block)) {    // single indirect block
@@ -35,7 +35,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
         int nth_in_direct_block = n - num_direct_block;
 
         struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
-        struct hodo_block_pos direct_block_pos = {file_inode->single_indirect.zone_id, file_inode->single_indirect.offset};
+        struct hodo_block_pos direct_block_pos = {file_inode->single_indirect.zone_id, file_inode->single_indirect.block_index};
         hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));  // read direct block
 
         struct hodo_block_pos data_block_pos = {0, };
@@ -50,7 +50,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
         int nth_in_direct_block = (n - (num_direct_block + num_block_pos_in_indirect_block)) % num_block_pos_in_indirect_block;
 
         struct hodo_datablock *temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
-        struct hodo_block_pos single_indirect_block_pos = {file_inode->double_indirect.zone_id, file_inode->double_indirect.offset};
+        struct hodo_block_pos single_indirect_block_pos = {file_inode->double_indirect.zone_id, file_inode->double_indirect.block_index};
         hodo_read_struct(single_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
 
         struct hodo_block_pos direct_block_pos = {0, };
@@ -78,7 +78,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
 
         struct hodo_datablock *temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
-        struct hodo_block_pos double_indirect_block_pos = {file_inode->triple_indirect.zone_id, file_inode->triple_indirect.offset};
+        struct hodo_block_pos double_indirect_block_pos = {file_inode->triple_indirect.zone_id, file_inode->triple_indirect.block_index};
         hodo_read_struct(double_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
 
         struct hodo_block_pos single_indirect_block_pos = {0, };
@@ -106,7 +106,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     //따라서 굳이 타겟 아이노드가 루트 아이노드인지를 확인해서 매핑 인덱스 0번을 수동으로 할당할 필요가 없다.
     struct inode *target_inode = iocb->ki_filp->f_inode;
     uint64_t target_ino = target_inode->i_ino;
-    uint64_t target_mapping_index = target_ino - mapping_info.starting_ino;
+    uint64_t target_mapping_index = target_ino - mapping_info.starting_logical_number;
 
     //타겟 파일의 아이노드를 불러오기.
     struct hodo_inode target_hodo_inode;
@@ -152,7 +152,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
         struct hodo_block_pos written_pos = {0, 0};
         written_size = write_one_block_by_direct_block(iocb, from, &written_pos, target_block);
 
-        pr_info("zonefs: write_iter %dth datablock written pos is (zone_id : %d, offset : %d)\n", data_block_index, written_pos.zone_id, written_pos.offset);
+        pr_info("zonefs: write_iter %dth datablock written pos is (zone_id : %d, offset : %d)\n", data_block_index, written_pos.zone_id, written_pos.block_index);
         target_hodo_inode.direct[data_block_index] = written_pos;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
     } 
@@ -223,7 +223,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     //데이터 블록이 새로 써졌으므로, 파일의 hodo 아이노드도 새로 쓰도록 한다
     struct hodo_block_pos inode_written_pos = {0, 0};
     hodo_write_struct(&target_hodo_inode, sizeof(struct hodo_inode), &inode_written_pos);
-    pr_info("zonefs: write_iter %dth inode written pos is (zone_id : %d, offset : %d)\n", target_mapping_index, inode_written_pos.zone_id, inode_written_pos.offset);
+    pr_info("zonefs: write_iter %dth inode written pos is (zone_id : %d, offset : %d)\n", target_mapping_index, inode_written_pos.zone_id, inode_written_pos.block_index);
     mapping_info.mapping_table[target_mapping_index] = inode_written_pos;
 
     //실제로 쓰기가 수행된 길이를 반환한다. 만약 이것이 요청된 쓰기 길이에 미치지 못한다면, VFS는 나머지 부분을 재호출 할 것이다.
@@ -639,7 +639,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
     ZONEFS_TRACE();
 
     // read directory inode
-    struct hodo_block_pos dir_block_pos = mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino];
+    struct hodo_block_pos dir_block_pos = mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number];
     struct hodo_inode dir_inode = {0,};
 
     hodo_read_struct(dir_block_pos, &dir_inode, sizeof(struct hodo_inode));
@@ -649,7 +649,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
     for (int i = 0; i < 10; ++i) {
         pr_info("%dth data block\n", i);
         if (dir_inode.direct[i].zone_id != 0) {
-            struct hodo_block_pos temp_pos = {dir_inode.direct[i].zone_id, dir_inode.direct[i].offset};
+            struct hodo_block_pos temp_pos = {dir_inode.direct[i].zone_id, dir_inode.direct[i].block_index};
             hodo_read_struct(temp_pos, temp_datablock, sizeof(struct hodo_datablock));
 
             for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
@@ -669,11 +669,11 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
                     dir_inode.file_len++;
                     dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
-                    dir_inode.direct[i].offset = mapping_info.wp.offset;
+                    dir_inode.direct[i].block_index = mapping_info.wp.block_index;
                     hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), NULL);
 
-                    mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
-                    mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset; 
+                    mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].zone_id = mapping_info.wp.zone_id; 
+                    mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].block_index = mapping_info.wp.block_index; 
                     hodo_write_struct(&dir_inode, sizeof(struct hodo_inode), NULL);
 
                     kfree(temp_datablock);
@@ -694,15 +694,15 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
             temp_datablock->magic[2] = 'T';
             temp_datablock->magic[3] = '0';
 
-            memcpy((void*)temp_datablock + 4, &temp_dirent, sizeof(struct hodo_dirent));
+            memcpy((void*)temp_datablock + HODO_DATA_START, &temp_dirent, sizeof(struct hodo_dirent));
 
             dir_inode.file_len++;
             dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
-            dir_inode.direct[i].offset = mapping_info.wp.offset;
+            dir_inode.direct[i].block_index = mapping_info.wp.block_index;
             hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), NULL);
 
-            mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].zone_id = mapping_info.wp.zone_id; 
-            mapping_info.mapping_table[dir->i_ino - mapping_info.starting_ino].offset = mapping_info.wp.offset; 
+            mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].zone_id = mapping_info.wp.zone_id; 
+            mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].block_index = mapping_info.wp.block_index; 
             hodo_write_struct(&dir_inode, sizeof(struct hodo_inode), NULL);
 
             kfree(temp_datablock);
@@ -870,7 +870,7 @@ bool check_directory_empty(struct dentry *dentry){
         dir_mapping_index = 0;
     }
     else {
-        dir_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_ino;
+        dir_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_logical_number;
     }
 
     //디렉토리의 hodo 아이노드를 저장장치로부터 읽어온다
@@ -981,21 +981,21 @@ bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_b
 }
 
 /*-------------------------------------------------------------비트맵용 함수-------------------------------------------------------------------------------*/
-static void hodo_set_bitmap(int i, int j) {
-    mapping_info.bitmap[i] |= (1 << (31 - j));
+static void hodo_set_logical_bitmap(int i, int j) {
+    mapping_info.logical_entry_bitmap[i] |= (1 << (31 - j));
 }
 
-static void hodo_unset_bitmap(int i, int j) {
-    mapping_info.bitmap[i] &= ~(1 << (31 - j));
+static void hodo_unset_logical_bitmap(int i, int j) {
+    mapping_info.logical_entry_bitmap[i] &= ~(1 << (31 - j));
 }
 
 int hodo_get_next_ino(void) {
-    for (int i = 0; i < (HODO_MAX_INODE / 32); ++i) {
-        if (mapping_info.bitmap[i] != 0xFFFFFFFF) {
+    for (int i = 0; i < (NUMBER_MAPPING_TABLE_ENTRY / 32); ++i) {
+        if (mapping_info.logical_entry_bitmap[i] != 0xFFFFFFFF) {
             for (int j = 0; j < 32; ++j) {
-                if ((mapping_info.bitmap[i] & (1 << (31 - j))) == 0) {
-                    hodo_set_bitmap(i, j);
-                    return mapping_info.starting_ino + (i * 32 + j);
+                if ((mapping_info.logical_entry_bitmap[i] & (1 << (31 - j))) == 0) {
+                    hodo_set_logical_bitmap(i, j);
+                    return mapping_info.starting_logical_number + (i * 32 + j);
                 }
             }
         }
@@ -1004,7 +1004,7 @@ int hodo_get_next_ino(void) {
 }
 
 int hodo_erase_table_entry(int table_entry_index) {
-    hodo_unset_bitmap(table_entry_index/32, table_entry_index%32);
+    hodo_unset_logical_bitmap(table_entry_index/32, table_entry_index%32);
     return 0;
 }
 
@@ -1013,10 +1013,9 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t 
     ZONEFS_TRACE();
 
     uint32_t zone_id = block_pos.zone_id;
-    uint64_t offset = block_pos.offset;
+    uint64_t offset = block_pos.block_index * HODO_DATABLOCK_SIZE;
 
-    //우리가 읽고 싶은 양은 0~HODO_DATABLOCK_SIZE Byte의 범위안에서 HODO_SECTOR_SIZE의 배수여야 한다
-    if (!out_buf || len == 0 || len > HODO_DATABLOCK_SIZE || len % HODO_SECTOR_SIZE != 0)
+    if (!out_buf || len == 0 || len > HODO_DATABLOCK_SIZE)
         return -EINVAL;
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기
@@ -1068,10 +1067,9 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
     ZONEFS_TRACE();
 
     uint32_t zone_id = mapping_info.wp.zone_id;
-    uint64_t offset = mapping_info.wp.offset;
+    uint64_t offset = mapping_info.wp.block_index * HODO_DATABLOCK_SIZE;
 
-    //write size는 HODO_SECTOR_SIZE 단위여야 하고, 하나의 블럭 이내의 크기여야 한다.
-    if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE || (len % HODO_SECTOR_SIZE != 0))
+    if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE)
         return -EINVAL;
 
     if (offset + len >= hodo_zone_size) {
@@ -1086,7 +1084,7 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
 
     if(out_pos != NULL){
         out_pos->zone_id = zone_id;
-        out_pos->offset = offset;
+        out_pos->block_index = offset / HODO_DATABLOCK_SIZE;
     }
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기
@@ -1134,11 +1132,11 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
 
     if (offset + len == hodo_zone_size) {
         mapping_info.wp.zone_id = zone_id + 1; 
-        mapping_info.wp.offset = 0;
+        mapping_info.wp.block_index = 0;
     }
     else {
         mapping_info.wp.zone_id = zone_id; 
-        mapping_info.wp.offset = offset + len;
+        mapping_info.wp.block_index += 1;
     }
 
     return ret;
