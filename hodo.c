@@ -125,6 +125,7 @@ void hodo_init(void) {
         root_inode.type = 1;
 
         root_inode.i_ino = mapping_info.starting_logical_number;
+        hodo_get_next_logical_number();
         root_inode.i_mode = S_IFDIR; 
 
         root_inode.i_uid = current_fsuid();

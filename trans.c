@@ -522,7 +522,6 @@ int read_all_dirents(
         direct_block_logical_number = dir_hodo_inode->direct[i];
         
         if(is_block_logical_number_valid(direct_block_logical_number)) {
-
             hodo_read_struct(direct_block_logical_number, buf_block, HODO_DATABLOCK_SIZE);
 
             result = read_all_dirents_from_direct_block(buf_block, ctx, dirent_count);
@@ -991,6 +990,7 @@ int hodo_get_next_logical_number(void) {
             for (int j = 0; j < 32; ++j) {
                 if ((mapping_info.logical_entry_bitmap[i] & (1 << (31 - j))) == 0) {
                     hodo_set_logical_bitmap(i, j);
+                    pr_info("return logical number : %d\n", mapping_info.starting_logical_number + (i * 32 + j));
                     return mapping_info.starting_logical_number + (i * 32 + j);
                 }
             }
@@ -1082,10 +1082,22 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
     }
 
     if(*logical_block_number == 0){
-        *logical_block_number = hodo_get_next_logical_number();
+        if (((char*)buf)[0] == 'I' && ((char*)buf)[1] == 'N' && ((char*)buf)[2] == 'O') {
+            if (((struct hodo_inode *)buf)->i_ino != mapping_info.starting_logical_number) {
+                *logical_block_number = hodo_get_next_logical_number();
+            }
+        }
+        else {
+            *logical_block_number = hodo_get_next_logical_number();
+        }
     }
 
     mapping_info.mapping_table[*logical_block_number] = mapping_info.wp;
+
+    if (((char*)buf)[0] == 'D' && ((char*)buf)[1] == 'A' && ((char*)buf)[2] == 'T') {
+        pr_info("logical block number: %d\n", logical_block_number);
+        ((struct hodo_datablock*)buf)->logical_block_number = logical_block_number;
+    }
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기
     const char path_up[16];
@@ -1221,7 +1233,7 @@ bool is_dirent_valid(struct hodo_dirent *dirent){
 }
 
 bool is_block_logical_number_valid(logical_block_number_t logical_block_number){
-    if(mapping_info.mapping_table[logical_block_number].zone_id != 0) return true;
+    if(logical_block_number != 0) return true;
     else return false;
 }
 
