@@ -31,9 +31,13 @@
 #define ZONE_SIZE_MB            256             // 256MB per each zone
 #define BLOCKS_PER_ZONE         (ZONE_SIZE_MB * (1 << 8))
 
+typedef unsigned int logical_block_number_t;
+#define BLOCK_PTR_SZ            sizeof(logical_block_number_t)
+
+#define NEW_DATABLOCK           0               // write_struct 참고
+
 #define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
 
-typedef unsigned int logical_block_number_t;
 
 // ZNS-SSD의 Physical Block 주소
 struct hodo_block_pos {
@@ -43,7 +47,7 @@ struct hodo_block_pos {
 
 struct hodo_datablock {
     char magic[4];
-    logical_block_number_t master_entry_num;
+    logical_block_number_t logical_block_number;
     char data[HODO_DATA_SIZE];
 };
 
@@ -72,15 +76,15 @@ struct hodo_inode {
     struct timespec64 i_mtime;
     struct timespec64 i_ctime;
 
-    struct hodo_block_pos direct[10];
-    struct hodo_block_pos single_indirect;
-    struct hodo_block_pos double_indirect;
-    struct hodo_block_pos triple_indirect;
+    // struct hodo_block_pos direct[10];
+    // struct hodo_block_pos single_indirect;
+    // struct hodo_block_pos double_indirect;
+    // struct hodo_block_pos triple_indirect;
 
-    // logical_block_number_t direct[10];
-    // logical_block_number_t single_indirect;
-    // logical_block_number_t double_indirect;
-    // logical_block_number_t triple_indirect;
+    logical_block_number_t direct[10];
+    logical_block_number_t single_indirect;
+    logical_block_number_t double_indirect;
+    logical_block_number_t triple_indirect;
 
     char padding[3936];
 };

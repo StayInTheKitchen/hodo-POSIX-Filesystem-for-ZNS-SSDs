@@ -23,24 +23,24 @@ static void hodo_unset_logical_bitmap(int i, int j);
 void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock) {
     ZONEFS_TRACE();
     int num_direct_block = sizeof(file_inode->direct) / sizeof((file_inode->direct)[0]);  // direct block의 개수
-    int num_block_pos_in_indirect_block = HODO_DATA_SIZE / sizeof(struct hodo_block_pos);
+    int num_block_pos_in_indirect_block = HODO_DATA_SIZE / BLOCK_PTR_SZ;
 
     if (n < num_direct_block) { // direct block
         pr_info("read direct block\n");
-        struct hodo_block_pos data_block_pos = {file_inode->direct[n].zone_id, file_inode->direct[n].block_index};
-        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t data_block_logical_number = file_inode->direct[n];
+        hodo_read_struct(data_block_logical_number, dst_datablock, sizeof(struct hodo_datablock));
     }
     else if (n < (num_direct_block + num_block_pos_in_indirect_block)) {    // single indirect block
         pr_info("read single indirect block\n");
         int nth_in_direct_block = n - num_direct_block;
 
         struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
-        struct hodo_block_pos direct_block_pos = {file_inode->single_indirect.zone_id, file_inode->single_indirect.block_index};
-        hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));  // read direct block
+        logical_block_number_t direct_block_logical_number = file_inode->single_indirect;
+        hodo_read_struct(direct_block_logical_number, temp_datablock, sizeof(struct hodo_datablock));  // read direct block
 
-        struct hodo_block_pos data_block_pos = {0, };
-        memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t data_block_logical_number;
+        memcpy(&data_block_logical_number, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * BLOCK_PTR_SZ), BLOCK_PTR_SZ);
+        hodo_read_struct(data_block_logical_number, dst_datablock, sizeof(struct hodo_datablock));
 
         kfree(temp_datablock);
     }
@@ -50,16 +50,16 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
         int nth_in_direct_block = (n - (num_direct_block + num_block_pos_in_indirect_block)) % num_block_pos_in_indirect_block;
 
         struct hodo_datablock *temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
-        struct hodo_block_pos single_indirect_block_pos = {file_inode->double_indirect.zone_id, file_inode->double_indirect.block_index};
-        hodo_read_struct(single_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t single_indirect_logical_number = file_inode->double_indirect;
+        hodo_read_struct(single_indirect_logical_number, temp_datablock, sizeof(struct hodo_datablock));
 
-        struct hodo_block_pos direct_block_pos = {0, };
-        memcpy(&direct_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_single_indirect_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-        hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t direct_block_logical_number = 0;
+        memcpy(&direct_block_logical_number, (char*)temp_datablock + HODO_DATA_START + (nth_in_single_indirect_block * BLOCK_PTR_SZ), BLOCK_PTR_SZ);
+        hodo_read_struct(direct_block_logical_number, temp_datablock, sizeof(struct hodo_datablock));
 
-        struct hodo_block_pos data_block_pos = {0, };
-        memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t data_block_logical_number= 0;
+        memcpy(&data_block_logical_number, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * BLOCK_PTR_SZ), BLOCK_PTR_SZ);
+        hodo_read_struct(data_block_logical_number, dst_datablock, sizeof(struct hodo_datablock));
 
         kfree(temp_datablock);
     }
@@ -78,20 +78,20 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
 
         struct hodo_datablock *temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
-        struct hodo_block_pos double_indirect_block_pos = {file_inode->triple_indirect.zone_id, file_inode->triple_indirect.block_index};
-        hodo_read_struct(double_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t double_indirect_block_logical_number = file_inode->triple_indirect;
+        hodo_read_struct(double_indirect_block_logical_number, temp_datablock, sizeof(struct hodo_datablock));
 
-        struct hodo_block_pos single_indirect_block_pos = {0, };
-        memcpy(&single_indirect_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_double_indirect_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-        hodo_read_struct(single_indirect_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t single_indirect_block_logical_number = 0;
+        memcpy(&single_indirect_block_logical_number, (char*)temp_datablock + HODO_DATA_START + (nth_in_double_indirect_block * BLOCK_PTR_SZ), BLOCK_PTR_SZ);
+        hodo_read_struct(single_indirect_block_logical_number, temp_datablock, sizeof(struct hodo_datablock));
 
-        struct hodo_block_pos direct_block_pos = {0, };
-        memcpy(&direct_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_single_indirect_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-        hodo_read_struct(direct_block_pos, temp_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t direct_block_logical_number = 0;
+        memcpy(&direct_block_logical_number, (char*)temp_datablock + HODO_DATA_START + (nth_in_single_indirect_block * BLOCK_PTR_SZ), BLOCK_PTR_SZ);
+        hodo_read_struct(direct_block_logical_number, temp_datablock, sizeof(struct hodo_datablock));
 
-        struct hodo_block_pos data_block_pos = {0, };
-        memcpy(&data_block_pos, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * sizeof(struct hodo_block_pos)), sizeof(struct hodo_block_pos));
-        hodo_read_struct(data_block_pos, dst_datablock, sizeof(struct hodo_datablock));
+        logical_block_number_t data_block_logical_number = 0;
+        memcpy(&data_block_logical_number, (char*)temp_datablock + HODO_DATA_START + (nth_in_direct_block * BLOCK_PTR_SZ), BLOCK_PTR_SZ);
+        hodo_read_struct(data_block_logical_number, dst_datablock, sizeof(struct hodo_datablock));
 
         kfree(temp_datablock);
     }
@@ -110,10 +110,10 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
 
     //타겟 파일의 아이노드를 불러오기.
     struct hodo_inode target_hodo_inode;
-    struct hodo_block_pos target_inode_pos;
+    logical_block_number_t target_inode_logical_number;
 
-    target_inode_pos = mapping_info.mapping_table[target_mapping_index];
-    hodo_read_struct(target_inode_pos, &target_hodo_inode, sizeof(struct hodo_inode));
+    target_inode_logical_number = target_mapping_index;
+    hodo_read_struct(target_inode_logical_number, &target_hodo_inode, sizeof(struct hodo_inode));
 
     if (iocb->ki_flags & IOCB_APPEND)
         iocb->ki_pos = i_size_read(target_inode);
@@ -126,7 +126,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
         return -ENOMEM;
     }
 
-    uint64_t num_of_block_poses_in_datablock = HODO_DATA_SIZE/sizeof(struct hodo_block_pos);
+    uint64_t num_of_block_poses_in_datablock = HODO_DATA_SIZE/BLOCK_PTR_SZ;
 
     loff_t offset = iocb->ki_pos;
     loff_t data_block_index = offset / HODO_DATA_SIZE;
@@ -140,7 +140,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
         //direct_data_block(0~9)에 쓸 위치가 존재
         pr_info("zonefs: write_iter in direct_data_block\n");
 
-        if(is_block_pos_valid(target_hodo_inode.direct[data_block_index]))
+        if(is_block_logical_number_valid(target_hodo_inode.direct[data_block_index]))
             hodo_read_struct(target_hodo_inode.direct[data_block_index], target_block, HODO_DATABLOCK_SIZE);
         else {
             target_block->magic[0] = 'D';
@@ -149,18 +149,17 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
             target_block->magic[3] = '0';
         }
 
-        struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_one_block_by_direct_block(iocb, from, &written_pos, target_block);
+        logical_block_number_t written_logical_number = target_hodo_inode.direct[data_block_index];
+        written_size = write_one_block_by_direct_block(iocb, from, &written_logical_number, target_block);
 
-        pr_info("zonefs: write_iter %dth datablock written pos is (zone_id : %d, offset : %d)\n", data_block_index, written_pos.zone_id, written_pos.block_index);
-        target_hodo_inode.direct[data_block_index] = written_pos;
+        target_hodo_inode.direct[data_block_index] = written_logical_number;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
     } 
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block){
         //singe_indirect_data_block에 쓸 위치가 존재
         pr_info("zonefs: write_iter in single_indirect_data_block\n");
 
-        if(is_block_pos_valid(target_hodo_inode.single_indirect))
+        if(is_block_logical_number_valid(target_hodo_inode.single_indirect))
             hodo_read_struct(target_hodo_inode.single_indirect, target_block, HODO_DATABLOCK_SIZE);
         else {
             target_block->magic[0] = 'D';
@@ -169,17 +168,17 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
             target_block->magic[3] = '1';
         }
 
-        struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
+        logical_block_number_t written_logical_number = target_hodo_inode.single_indirect;
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_logical_number, target_block);
 
-        target_hodo_inode.single_indirect = written_pos;
+        target_hodo_inode.single_indirect = written_logical_number;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block){
         //double_indirect_data_block에 쓸 위치가 존재
         pr_info("zonefs: write_iter in double_indirect_data_block\n");
 
-        if(is_block_pos_valid(target_hodo_inode.double_indirect))
+        if(is_block_logical_number_valid(target_hodo_inode.double_indirect))
             hodo_read_struct(target_hodo_inode.double_indirect, target_block, HODO_DATABLOCK_SIZE);
         else {
             target_block->magic[0] = 'D';
@@ -188,17 +187,17 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
             target_block->magic[3] = '2';
         }
 
-        struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
+        logical_block_number_t written_logical_number = target_hodo_inode.double_indirect;
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_logical_number, target_block);
 
-        target_hodo_inode.double_indirect = written_pos;
+        target_hodo_inode.double_indirect = written_logical_number;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block + num_of_direct_blocks_in_triple_indirect_block){
         //triple_indirect_data_block에 쓸 위치가 존재
         pr_info("zonefs: write_iter in triple_indirect_data_block\n");
 
-        if(is_block_pos_valid(target_hodo_inode.triple_indirect))
+        if(is_block_logical_number_valid(target_hodo_inode.triple_indirect))
             hodo_read_struct(target_hodo_inode.triple_indirect, target_block, HODO_DATABLOCK_SIZE);
         else {
             target_block->magic[0] = 'D';
@@ -207,10 +206,10 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
             target_block->magic[3] = '3';
         }
 
-        struct hodo_block_pos written_pos = {0, 0};
-        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
+        logical_block_number_t written_logical_number = target_hodo_inode.triple_indirect;
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_logical_number, target_block);
 
-        target_hodo_inode.triple_indirect = written_pos;
+        target_hodo_inode.triple_indirect = written_logical_number;
         target_hodo_inode.file_len = iocb->ki_pos + written_size;
     }
     else {
@@ -221,10 +220,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     }
 
     //데이터 블록이 새로 써졌으므로, 파일의 hodo 아이노드도 새로 쓰도록 한다
-    struct hodo_block_pos inode_written_pos = {0, 0};
-    hodo_write_struct(&target_hodo_inode, sizeof(struct hodo_inode), &inode_written_pos);
-    pr_info("zonefs: write_iter %dth inode written pos is (zone_id : %d, offset : %d)\n", target_mapping_index, inode_written_pos.zone_id, inode_written_pos.block_index);
-    mapping_info.mapping_table[target_mapping_index] = inode_written_pos;
+    hodo_write_struct(&target_hodo_inode, sizeof(struct hodo_inode), &target_inode_logical_number);
 
     //실제로 쓰기가 수행된 길이를 반환한다. 만약 이것이 요청된 쓰기 길이에 미치지 못한다면, VFS는 나머지 부분을 재호출 할 것이다.
     kfree(target_block);
@@ -235,7 +231,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     return written_size;
 }
 
-ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_direct_block){
+ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *from, logical_block_number_t *out_logical_number, struct hodo_datablock *current_direct_block){
     ZONEFS_TRACE();
 
     struct hodo_datablock *target_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -267,7 +263,7 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
                 return -EFAULT;
             }
 
-            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_pos);
+            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_logical_number);
             kfree(target_block);
             return HODO_DATA_SIZE - left_len;
         }
@@ -278,7 +274,7 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
                 return -EFAULT;
             }
 
-            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_pos);
+            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_logical_number);
             kfree(target_block);
             return len;
         }
@@ -293,7 +289,7 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
                 return -EFAULT;
             }
 
-            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_pos);
+            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_logical_number);
             kfree(target_block);
             return HODO_DATA_SIZE;
         }
@@ -304,20 +300,20 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
                 return -EFAULT;
             }
 
-            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_pos);
+            hodo_write_struct(target_block, HODO_DATABLOCK_SIZE, out_logical_number);
             kfree(target_block);
             return len;
         }
     }
 }
 
-ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *from, struct hodo_block_pos *out_pos, struct hodo_datablock *current_indirect_block){
+ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *from, logical_block_number_t *out_logical_number, struct hodo_datablock *current_indirect_block){
     ZONEFS_TRACE();
 
     //offset을 통해서, 현재 indirect_block 속에 나열 된 block_pos중 무엇을 사용해야 할지 알아낸다.
     uint64_t block_pos_index_in_current_indirect_block = 0;
 
-    uint64_t num_of_block_poses_in_datablock = HODO_DATA_SIZE/sizeof(struct hodo_block_pos);
+    uint64_t num_of_block_poses_in_datablock = HODO_DATA_SIZE/BLOCK_PTR_SZ;
 
     loff_t offset = iocb->ki_pos;
     loff_t data_block_index = offset / HODO_DATA_SIZE;
@@ -347,9 +343,9 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
         return -EFBIG;
     }
 
-    void* address_of_target_block_pos_in_current_block = (void*)(current_indirect_block->data) + block_pos_index_in_current_indirect_block * sizeof(struct hodo_block_pos);
-    struct hodo_block_pos target_block_pos = {0, 0};
-    memcpy(&target_block_pos, address_of_target_block_pos_in_current_block, sizeof(struct hodo_block_pos));
+    void* address_of_target_block_pos_in_current_block = (void*)(current_indirect_block->data) + block_pos_index_in_current_indirect_block * BLOCK_PTR_SZ;
+    logical_block_number_t target_block_logical_number = 0;
+    memcpy(&target_block_logical_number, address_of_target_block_pos_in_current_block, BLOCK_PTR_SZ);
 
     //위에서 알아낸 block_pos가 유효하다면 해당 데이터블록을 저장장치로부터 읽어낸다. 이렇게 읽어낸 블록은 이전 데이터 블록보다 간접 차수가 1 낮은 데이터 블록이다.
     struct hodo_datablock *target_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -358,8 +354,14 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
         return -ENOMEM;
     }
 
-    if(is_block_pos_valid(target_block_pos))
-        hodo_read_struct(target_block_pos, target_block, HODO_DATABLOCK_SIZE);
+    logical_block_number_t written_logical_number = 0;
+    //호출할 함수가 write_one_block_by_indirect_block인지, write_one_block_by_direct_block인지를 분간해서 재귀를 호출한다.
+    //분간하기 위해서 유효한 target_block이라면 magic을 확인한다.
+    if(is_block_logical_number_valid(target_block_logical_number)) {
+        hodo_read_struct(target_block_logical_number, target_block, HODO_DATABLOCK_SIZE);
+
+        written_logical_number = target_block_logical_number;
+    }
     else {
         target_block->magic[0] = 'D';
         target_block->magic[1] = 'A';
@@ -367,19 +369,17 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
         target_block->magic[3] = current_indirect_block->magic[3] - 1;
     }
 
-    //호출할 함수가 write_one_block_by_indirect_block인지, write_one_block_by_direct_block인지를 분간해서 재귀를 호출한다.
-    //분간하기 위해서 유효한 target_block이라면 magic을 확인한다.
-    struct hodo_block_pos written_pos = {0, 0};
     ssize_t written_size = 0;
+
     if(is_directblock(target_block))
-        written_size = write_one_block_by_direct_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_direct_block(iocb, from, &written_logical_number, target_block);
     else
-        written_size = write_one_block_by_indirect_block(iocb, from, &written_pos, target_block);
+        written_size = write_one_block_by_indirect_block(iocb, from, &written_logical_number, target_block);
 
     //아래 차수의 데이터 블록이 새로 써졌으니, 이를 가리키는 block pos도 새 것으로 대체해서 현재 데이터 블록도 새로 쓰고서 그 위치를 상위 함수에 반환하여야 한다.
-    if (written_size > 0 && is_block_pos_valid(written_pos)){
-        memcpy(address_of_target_block_pos_in_current_block, &written_pos, sizeof(struct hodo_block_pos));
-        hodo_write_struct(current_indirect_block, sizeof(struct hodo_datablock), out_pos);
+    if (written_size > 0 && is_block_logical_number_valid(written_logical_number)){
+        memcpy(address_of_target_block_pos_in_current_block, &written_logical_number, BLOCK_PTR_SZ);
+        hodo_write_struct(current_indirect_block, sizeof(struct hodo_datablock), out_logical_number);
     }
 
     kfree(target_block);
@@ -399,13 +399,13 @@ uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target
     }
 
     //direct data block들에서 특정 이름의 hodo dentry를 찾아보기
-    struct hodo_block_pos direct_block_pos;
+    logical_block_number_t direct_block_logical_number;
 
     for (int i = 0; i < 10; i++) {
-        direct_block_pos = dir_hodo_inode->direct[i];
+        direct_block_logical_number = dir_hodo_inode->direct[i];
         
-        if(is_block_pos_valid(direct_block_pos)) {
-            hodo_read_struct(direct_block_pos, buf_block, HODO_DATABLOCK_SIZE);
+        if(is_block_logical_number_valid(direct_block_logical_number)) {
+            hodo_read_struct(direct_block_logical_number, buf_block, HODO_DATABLOCK_SIZE);
 
             result = find_inode_number_from_direct_block(buf_block, target_name);
 
@@ -417,15 +417,15 @@ uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target
     }
 
     //single, double, triple indirect data block에서 특정 이름의 hodo dentry를 찾아보기
-    struct hodo_block_pos indirect_block_pos[3] = {
+    logical_block_number_t indirect_block_logical_number[3] = {
         dir_hodo_inode->single_indirect,
         dir_hodo_inode->double_indirect,
         dir_hodo_inode->triple_indirect
     };
 
     for(int i = 0; i < 3; i++){
-        if(is_block_pos_valid(indirect_block_pos[i])) {
-            hodo_read_struct(indirect_block_pos[i], buf_block, HODO_DATABLOCK_SIZE);
+        if(is_block_logical_number_valid(indirect_block_logical_number[i])) {
+            hodo_read_struct(indirect_block_logical_number[i], buf_block, HODO_DATABLOCK_SIZE);
 
             result = find_inode_number_from_indirect_block(buf_block, target_name);
 
@@ -464,7 +464,7 @@ uint64_t find_inode_number_from_indirect_block(
 ) {
     ZONEFS_TRACE();
 
-    struct hodo_block_pos temp_block_pos;
+    logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (temp_block == NULL) {
@@ -472,13 +472,13 @@ uint64_t find_inode_number_from_indirect_block(
         return NOTHING_FOUND;
     }
 
-    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
-        memcpy(&temp_block_pos, (void*)indirect_block + j, sizeof(struct hodo_block_pos));
+    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - BLOCK_PTR_SZ; j += BLOCK_PTR_SZ) {
+        memcpy(&temp_block_logical_number, (void*)indirect_block + j, BLOCK_PTR_SZ);
 
-        if(!is_block_pos_valid(temp_block_pos))
+        if(!is_block_logical_number_valid(temp_block_logical_number))
             continue;
 
-        hodo_read_struct(temp_block_pos, temp_block, HODO_DATABLOCK_SIZE);
+        hodo_read_struct(temp_block_logical_number, temp_block, HODO_DATABLOCK_SIZE);
 
         uint64_t result;
 
@@ -516,14 +516,14 @@ int read_all_dirents(
     int result;
 
     //direct data block들에서 hodo dirent들을 읽어내기
-    struct hodo_block_pos direct_block_pos;
+    logical_block_number_t direct_block_logical_number;
 
     for (int i = 0; i < 10; i++) {
-        direct_block_pos = dir_hodo_inode->direct[i];
+        direct_block_logical_number = dir_hodo_inode->direct[i];
         
-        if(is_block_pos_valid(direct_block_pos)) {
+        if(is_block_logical_number_valid(direct_block_logical_number)) {
 
-            hodo_read_struct(direct_block_pos, buf_block, HODO_DATABLOCK_SIZE);
+            hodo_read_struct(direct_block_logical_number, buf_block, HODO_DATABLOCK_SIZE);
 
             result = read_all_dirents_from_direct_block(buf_block, ctx, dirent_count);
             
@@ -535,15 +535,15 @@ int read_all_dirents(
     }
 
     //single, double, triple indirect data block에서 hodo dirent들을 읽어내기
-    struct hodo_block_pos indirect_block_pos[3] = {
+    logical_block_number_t indirect_block_logical_number[3] = {
         dir_hodo_inode->single_indirect,
         dir_hodo_inode->double_indirect,
         dir_hodo_inode->triple_indirect
     };
 
     for(int i = 0; i < 3; i++){
-        if(is_block_pos_valid(indirect_block_pos[i])) {
-            hodo_read_struct(indirect_block_pos[i], buf_block, HODO_DATABLOCK_SIZE);
+        if(is_block_logical_number_valid(indirect_block_logical_number[i])) {
+            hodo_read_struct(indirect_block_logical_number[i], buf_block, HODO_DATABLOCK_SIZE);
 
             result = read_all_dirents_from_indirect_block(buf_block, ctx, dirent_count);
 
@@ -590,7 +590,7 @@ int read_all_dirents_from_indirect_block(
 ) {
     ZONEFS_TRACE();
 
-    struct hodo_block_pos temp_block_pos;
+    logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
      if (temp_block == NULL) {
@@ -598,13 +598,13 @@ int read_all_dirents_from_indirect_block(
         return 0;
     }
 
-    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
-        memcpy(&temp_block_pos, (void*)indirect_block + j, sizeof(struct hodo_block_pos));
+    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - BLOCK_PTR_SZ; j += BLOCK_PTR_SZ) {
+        memcpy(&temp_block_logical_number, (void*)indirect_block + j, BLOCK_PTR_SZ);
 
-        if(!is_block_pos_valid(temp_block_pos))
+        if(!is_block_logical_number_valid(temp_block_logical_number))
             continue;
 
-        hodo_read_struct(temp_block_pos, temp_block, HODO_DATABLOCK_SIZE);
+        hodo_read_struct(temp_block_logical_number, temp_block, HODO_DATABLOCK_SIZE);
 
         uint64_t result;
 
@@ -639,18 +639,18 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
     ZONEFS_TRACE();
 
     // read directory inode
-    struct hodo_block_pos dir_block_pos = mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number];
+    logical_block_number_t dir_block_logical_number = dir->i_ino - mapping_info.starting_logical_number;
     struct hodo_inode dir_inode = {0,};
 
-    hodo_read_struct(dir_block_pos, &dir_inode, sizeof(struct hodo_inode));
+    hodo_read_struct(dir_block_logical_number, &dir_inode, sizeof(struct hodo_inode));
 
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     for (int i = 0; i < 10; ++i) {
         pr_info("%dth data block\n", i);
-        if (dir_inode.direct[i].zone_id != 0) {
-            struct hodo_block_pos temp_pos = {dir_inode.direct[i].zone_id, dir_inode.direct[i].block_index};
-            hodo_read_struct(temp_pos, temp_datablock, sizeof(struct hodo_datablock));
+        if (dir_inode.direct[i] != 0) {
+            logical_block_number_t temp_logical_number = dir_inode.direct[i];
+            hodo_read_struct(temp_logical_number, temp_datablock, sizeof(struct hodo_datablock));
 
             for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
                 struct hodo_dirent temp_dirent;
@@ -668,13 +668,9 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
                     memcpy((void*)temp_datablock + j, &temp_dirent, sizeof(struct hodo_dirent));
 
                     dir_inode.file_len++;
-                    dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
-                    dir_inode.direct[i].block_index = mapping_info.wp.block_index;
-                    hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), NULL);
+                    hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), &temp_logical_number);
 
-                    mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].zone_id = mapping_info.wp.zone_id; 
-                    mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].block_index = mapping_info.wp.block_index; 
-                    hodo_write_struct(&dir_inode, sizeof(struct hodo_inode), NULL);
+                    hodo_write_struct(&dir_inode, sizeof(struct hodo_inode), &dir_block_logical_number);
 
                     kfree(temp_datablock);
                     return 0;
@@ -697,13 +693,11 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
             memcpy((void*)temp_datablock + HODO_DATA_START, &temp_dirent, sizeof(struct hodo_dirent));
 
             dir_inode.file_len++;
-            dir_inode.direct[i].zone_id = mapping_info.wp.zone_id;
-            dir_inode.direct[i].block_index = mapping_info.wp.block_index;
-            hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), NULL);
+            logical_block_number_t temp_logical_number = 0;
+            hodo_write_struct(temp_datablock, sizeof(struct hodo_datablock), &temp_logical_number);
 
-            mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].zone_id = mapping_info.wp.zone_id; 
-            mapping_info.mapping_table[dir->i_ino - mapping_info.starting_logical_number].block_index = mapping_info.wp.block_index; 
-            hodo_write_struct(&dir_inode, sizeof(struct hodo_inode), NULL);
+            dir_inode.direct[i] = temp_logical_number;
+            hodo_write_struct(&dir_inode, sizeof(struct hodo_inode), &dir_block_logical_number);
 
             kfree(temp_datablock);
             return 0;
@@ -715,7 +709,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 }
 
 /*-------------------------------------------------------------unlink용 함수-------------------------------------------------------------------------------*/
-int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const char *target_name, struct hodo_block_pos *out_pos){
+int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const char *target_name, logical_block_number_t *out_logical_number){
     ZONEFS_TRACE();
 
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -726,22 +720,23 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
     }
 
     int result;
-    struct hodo_block_pos written_pos;
+    logical_block_number_t written_logical_number;
 
     //direct data block에서 target_mapping_index를 가진 dirent를 찾아 지우기
-    struct hodo_block_pos direct_block_pos;
+    logical_block_number_t direct_block_logical_number;
 
     for (int i = 0; i < 10; i++) {
-        direct_block_pos = dir_hodo_inode->direct[i];
+        direct_block_logical_number = dir_hodo_inode->direct[i];
         
-        if(is_block_pos_valid(direct_block_pos)) {
-            hodo_read_struct(direct_block_pos, buf_block, HODO_DATABLOCK_SIZE);
+        if(is_block_logical_number_valid(direct_block_logical_number)) {
+            hodo_read_struct(direct_block_logical_number, buf_block, HODO_DATABLOCK_SIZE);
 
-            result = remove_dirent_from_direct_block(buf_block, target_name, &written_pos);
+            written_logical_number = direct_block_logical_number;
+            result = remove_dirent_from_direct_block(buf_block, target_name, &written_logical_number);
             
             if(result != NOTHING_FOUND) {
                 //dirent를 삭제하면서 direct_datablock가 새로 써지므로, 이를 가리키는 hodo_inode는 새로 써져야 한다.
-                dir_hodo_inode->direct[i] = written_pos;
+                dir_hodo_inode->direct[i] = written_logical_number;
                 dir_hodo_inode->i_atime = current_time(dir);
                 dir_hodo_inode->i_mtime = current_time(dir);
                 dir_hodo_inode->i_ctime = current_time(dir);
@@ -749,7 +744,7 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
                 //dirent가 삭제되면서 예하 파일 수가 줄어들었으므로, 이를 반영한다
                 dir_hodo_inode->file_len--;
 
-                hodo_write_struct(dir_hodo_inode, sizeof(struct hodo_inode), out_pos);
+                hodo_write_struct(dir_hodo_inode, sizeof(struct hodo_inode), out_logical_number);
 
                 kfree(buf_block);
                 return result;
@@ -758,21 +753,22 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
     }
 
     //single, double, triple indirect data block들이 가리키는 direct_data_block에서 target_mapping_index를 가진 dirent를 찾아 지우기
-    struct hodo_block_pos *indirect_block_pos[3] = {
-        &(dir_hodo_inode->single_indirect),
-        &(dir_hodo_inode->double_indirect),
-        &(dir_hodo_inode->triple_indirect)
+    logical_block_number_t indirect_block_logical_number[3] = {
+        dir_hodo_inode->single_indirect,
+        dir_hodo_inode->double_indirect,
+        dir_hodo_inode->triple_indirect
     };
 
     for(int i = 0; i < 3; i++){
-        if(is_block_pos_valid(*indirect_block_pos[i])) {
-            hodo_read_struct(*indirect_block_pos[i], buf_block, HODO_DATABLOCK_SIZE);
+        if(is_block_logical_number_valid(indirect_block_logical_number[i])) {
+            hodo_read_struct(indirect_block_logical_number[i], buf_block, HODO_DATABLOCK_SIZE);
 
-            result = remove_dirent_from_indirect_block(buf_block, target_name, &written_pos);
+            written_logical_number = indirect_block_logical_number[i];
+            result = remove_dirent_from_indirect_block(buf_block, target_name, &written_logical_number);
 
             if(result != NOTHING_FOUND) {
                 //dirent를 삭제하면서 direct_datablock가 새로 써지고, 이를 가리키는 indirect_datablock도 새로 써지므로, 이를 가리키는 hodo_inode 또한 새로 써져야 한다.
-                *indirect_block_pos[i] = written_pos;
+                indirect_block_logical_number[i] = written_logical_number;
                 dir_hodo_inode->i_atime = current_time(dir);
                 dir_hodo_inode->i_mtime = current_time(dir);
                 dir_hodo_inode->i_ctime = current_time(dir);
@@ -780,7 +776,7 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
                 //dirent가 삭제되면서 예하 파일 수가 줄어들었으므로, 이를 반영한다
                 dir_hodo_inode->file_len--;
 
-                hodo_write_struct(dir_hodo_inode, sizeof(struct hodo_inode), out_pos);
+                hodo_write_struct(dir_hodo_inode, sizeof(struct hodo_inode), out_logical_number);
                 kfree(buf_block);
                 return result;
             }
@@ -795,7 +791,7 @@ int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const ch
 int remove_dirent_from_direct_block(
     struct hodo_datablock *direct_block,
     const char *target_name,
-    struct hodo_block_pos *out_pos
+    logical_block_number_t *out_logical_number
 ) {
     ZONEFS_TRACE();
 
@@ -804,7 +800,7 @@ int remove_dirent_from_direct_block(
         memcpy(&temp_dirent, (void*)direct_block + j, sizeof(struct hodo_dirent));
 
         if (memcmp(temp_dirent.name, target_name, HODO_MAX_NAME_LEN) == 0){
-            compact_datablock(direct_block, j, sizeof(struct hodo_dirent), out_pos);
+            compact_datablock(direct_block, j, sizeof(struct hodo_dirent), out_logical_number);
 
             return !NOTHING_FOUND;
         }
@@ -816,11 +812,11 @@ int remove_dirent_from_direct_block(
 int remove_dirent_from_indirect_block(
     struct hodo_datablock *indirect_block,
     const char *target_name,
-    struct hodo_block_pos *out_pos
+    logical_block_number_t *out_logical_number
 ) {
     ZONEFS_TRACE();
 
-    struct hodo_block_pos temp_block_pos;
+    logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (temp_block == NULL) {
@@ -828,27 +824,27 @@ int remove_dirent_from_indirect_block(
         return NOTHING_FOUND;
     }
 
-    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
-        memcpy(&temp_block_pos, (void*)indirect_block + j, sizeof(struct hodo_block_pos));
+    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - BLOCK_PTR_SZ; j += BLOCK_PTR_SZ) {
+        memcpy(&temp_block_logical_number, (void*)indirect_block + j, BLOCK_PTR_SZ);
 
-        if(!is_block_pos_valid(temp_block_pos))  
+        if(!is_block_logical_number_valid(temp_block_logical_number))  
             continue;
 
-        hodo_read_struct(temp_block_pos, temp_block, HODO_DATABLOCK_SIZE);
+        hodo_read_struct(temp_block_logical_number, temp_block, HODO_DATABLOCK_SIZE);
 
         int result;
-        struct hodo_block_pos written_pos;
+        logical_block_number_t written_logical_number = temp_block_logical_number;
 
         if(is_directblock(temp_block))
-            result = remove_dirent_from_direct_block(temp_block, target_name, &written_pos);
+            result = remove_dirent_from_direct_block(temp_block, target_name, &written_logical_number);
 
         else 
-            result = remove_dirent_from_indirect_block(temp_block, target_name, &written_pos);
+            result = remove_dirent_from_indirect_block(temp_block, target_name, &written_logical_number);
 
-        if (result != NOTHING_FOUND && is_block_pos_valid(written_pos)){
+        if (result != NOTHING_FOUND && is_block_logical_number_valid(written_logical_number)){
             //dirent를 삭제하면서 direct_datablock가 새로 써지므로, 이를 가리키는 indirect_datablock도 거슬러 올라가며 새로 써져야 한다.
-            memcpy((void*)indirect_block + j, &written_pos, sizeof(struct hodo_block_pos));
-            hodo_write_struct(indirect_block, sizeof(struct hodo_datablock), out_pos);
+            memcpy((void*)indirect_block + j, &written_logical_number, BLOCK_PTR_SZ);
+            hodo_write_struct(indirect_block, sizeof(struct hodo_datablock), out_logical_number);
 
             kfree(temp_block);
             return result;
@@ -874,9 +870,9 @@ bool check_directory_empty(struct dentry *dentry){
     }
 
     //디렉토리의 hodo 아이노드를 저장장치로부터 읽어온다
-    struct hodo_block_pos dir_hodo_pos = mapping_info.mapping_table[dir_mapping_index];
+    logical_block_number_t dir_hodo_logical_number= dir_mapping_index;
     struct hodo_inode dir_hodo_inode;
-    hodo_read_struct(dir_hodo_pos, &dir_hodo_inode, sizeof(struct hodo_inode));
+    hodo_read_struct(dir_hodo_logical_number, &dir_hodo_inode, sizeof(struct hodo_inode));
 
     //디렉토리 hodo 아이노드가 가리키는 데이터블록들을 순회할 준비를 한다
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -889,14 +885,14 @@ bool check_directory_empty(struct dentry *dentry){
     int result;
 
     //direct data block들이 비워져있는지 확인하기
-    struct hodo_block_pos direct_block_pos;
+    logical_block_number_t direct_block_logical_number;
 
     for (int i = 0; i < 10; i++) {
-        direct_block_pos = dir_hodo_inode.direct[i];
+        direct_block_logical_number = dir_hodo_inode.direct[i];
         
-        if(is_block_pos_valid(direct_block_pos)) {
+        if(is_block_logical_number_valid(direct_block_logical_number)) {
 
-            hodo_read_struct(direct_block_pos, buf_block, HODO_DATABLOCK_SIZE);
+            hodo_read_struct(direct_block_logical_number, buf_block, HODO_DATABLOCK_SIZE);
 
             result = check_directory_empty_from_direct_block(buf_block);
             
@@ -908,15 +904,15 @@ bool check_directory_empty(struct dentry *dentry){
     }
 
     //single, double, triple indirect data block를 통해 간접적으로 가리키는 direct_data_block들이 비워져있는지 확인하기
-    struct hodo_block_pos indirect_block_pos[3] = {
+    logical_block_number_t indirect_block_logical_number[3] = {
         dir_hodo_inode.single_indirect,
         dir_hodo_inode.double_indirect,
         dir_hodo_inode.triple_indirect
     };
 
     for(int i = 0; i < 3; i++){
-        if(is_block_pos_valid(indirect_block_pos[i])) {
-            hodo_read_struct(indirect_block_pos[i], buf_block, HODO_DATABLOCK_SIZE);
+        if(is_block_logical_number_valid(indirect_block_logical_number[i])) {
+            hodo_read_struct(indirect_block_logical_number[i], buf_block, HODO_DATABLOCK_SIZE);
 
             result = check_directory_empty_from_indirect_block(buf_block);
 
@@ -946,7 +942,7 @@ bool check_directory_empty_from_direct_block(struct hodo_datablock *direct_block
 bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_block){
     ZONEFS_TRACE();
 
-    struct hodo_block_pos temp_block_pos;
+    logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (temp_block == NULL) {
@@ -954,13 +950,13 @@ bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_b
         return EMPTY_CHECKED;
     }
 
-    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_block_pos); j += sizeof(struct hodo_block_pos)) {
-        memcpy(&temp_block_pos, (void*)indirect_block + j, sizeof(struct hodo_block_pos));
+    for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - BLOCK_PTR_SZ; j += BLOCK_PTR_SZ) {
+        memcpy(&temp_block_logical_number, (void*)indirect_block + j, BLOCK_PTR_SZ);
 
-        if(!is_block_pos_valid(temp_block_pos))
+        if(!is_block_logical_number_valid(temp_block_logical_number))
             continue;
 
-        hodo_read_struct(temp_block_pos, temp_block, HODO_DATABLOCK_SIZE);
+        hodo_read_struct(temp_block_logical_number, temp_block, HODO_DATABLOCK_SIZE);
 
         uint64_t result;
 
@@ -989,7 +985,7 @@ static void hodo_unset_logical_bitmap(int i, int j) {
     mapping_info.logical_entry_bitmap[i] &= ~(1 << (31 - j));
 }
 
-int hodo_get_next_ino(void) {
+int hodo_get_next_logical_number(void) {
     for (int i = 0; i < (NUMBER_MAPPING_TABLE_ENTRY / 32); ++i) {
         if (mapping_info.logical_entry_bitmap[i] != 0xFFFFFFFF) {
             for (int j = 0; j < 32; ++j) {
@@ -1004,13 +1000,16 @@ int hodo_get_next_ino(void) {
 }
 
 int hodo_erase_table_entry(int table_entry_index) {
+    mapping_info.mapping_table[table_entry_index].zone_id = 0;  // check invalid
     hodo_unset_logical_bitmap(table_entry_index/32, table_entry_index%32);
     return 0;
 }
 
 /*-------------------------------------------------------------입출력 함수-------------------------------------------------------------------------------*/
-ssize_t hodo_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t len) {
+ssize_t hodo_read_struct(logical_block_number_t logical_block_number, void *out_buf, size_t len) {
     ZONEFS_TRACE();
+    
+    struct hodo_block_pos block_pos = mapping_info.mapping_table[logical_block_number];
 
     uint32_t zone_id = block_pos.zone_id;
     uint64_t offset = block_pos.block_index * HODO_DATABLOCK_SIZE;
@@ -1063,7 +1062,7 @@ ssize_t hodo_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t 
     return ret;
 }
 
-ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos) {
+ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical_block_number) {
     ZONEFS_TRACE();
 
     uint32_t zone_id = mapping_info.wp.zone_id;
@@ -1082,10 +1081,11 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
         offset = 0;
     }
 
-    if(out_pos != NULL){
-        out_pos->zone_id = zone_id;
-        out_pos->block_index = offset / HODO_DATABLOCK_SIZE;
+    if(*logical_block_number == 0){
+        *logical_block_number = hodo_get_next_logical_number();
     }
+
+    mapping_info.mapping_table[*logical_block_number] = mapping_info.wp;
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기
     const char path_up[16];
@@ -1142,7 +1142,7 @@ ssize_t hodo_write_struct(void *buf, size_t len, struct hodo_block_pos *out_pos)
     return ret;
 }
 
-ssize_t compact_datablock(struct hodo_datablock *source_block, int remove_start_index, int remove_size, struct hodo_block_pos *out_pos){
+ssize_t compact_datablock(struct hodo_datablock *source_block, int remove_start_index, int remove_size, logical_block_number_t *out_logical_number){
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
     int remove_end_index = remove_start_index + remove_size;
 
@@ -1151,7 +1151,7 @@ ssize_t compact_datablock(struct hodo_datablock *source_block, int remove_start_
     //(remove_end_index~HODO_DATABLOCK_SIZE) 사이의 내용을 temp_block 안에 덧붙인다.
     memcpy((void*)temp_block + remove_start_index, (void*)source_block + remove_end_index, HODO_DATABLOCK_SIZE - remove_end_index);
 
-    ssize_t size = hodo_write_struct(temp_block, sizeof(struct hodo_datablock), out_pos);
+    ssize_t size = hodo_write_struct(temp_block, sizeof(struct hodo_datablock), out_logical_number);
     
     kfree(temp_block);
     return size;
@@ -1220,8 +1220,8 @@ bool is_dirent_valid(struct hodo_dirent *dirent){
         return false;
 }
 
-bool is_block_pos_valid(struct hodo_block_pos block_pos){
-    if(block_pos.zone_id != 0) return true;
+bool is_block_logical_number_valid(logical_block_number_t logical_block_number){
+    if(mapping_info.mapping_table[logical_block_number].zone_id != 0) return true;
     else return false;
 }
 
