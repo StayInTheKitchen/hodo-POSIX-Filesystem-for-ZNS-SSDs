@@ -18,6 +18,9 @@ static bool hodo_dir_emit(struct dir_context *ctx, struct hodo_dirent *temp_dire
 static void hodo_set_logical_bitmap(int i, int j);
 static void hodo_unset_logical_bitmap(int i, int j);
 
+static void hodo_set_GC_bitmap(struct hodo_block_pos);
+static void hodo_unset_GC_bitmap(struct hodo_block_pos);
+
 /*-----------------------------------------------------------read_iter용 함수------------------------------------------------------------------------------*/
 // file_inode에서 n번째 datablock을 dst_datablock으로 copy
 void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock) {
@@ -106,7 +109,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     //따라서 굳이 타겟 아이노드가 루트 아이노드인지를 확인해서 매핑 인덱스 0번을 수동으로 할당할 필요가 없다.
     struct inode *target_inode = iocb->ki_filp->f_inode;
     uint64_t target_ino = target_inode->i_ino;
-    uint64_t target_mapping_index = target_ino - mapping_info.starting_logical_number;
+    uint64_t target_mapping_index = target_ino ;
 
     //타겟 파일의 아이노드를 불러오기.
     struct hodo_inode target_hodo_inode;
@@ -638,7 +641,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
     ZONEFS_TRACE();
 
     // read directory inode
-    logical_block_number_t dir_block_logical_number = dir->i_ino - mapping_info.starting_logical_number;
+    logical_block_number_t dir_block_logical_number = dir->i_ino;
     struct hodo_inode dir_inode = {0,};
 
     hodo_read_struct(dir_block_logical_number, &dir_inode, sizeof(struct hodo_inode));
@@ -862,10 +865,10 @@ bool check_directory_empty(struct dentry *dentry){
     uint64_t dir_mapping_index;
 
     if(dentry->d_inode == dentry->d_sb->s_root->d_inode) {
-        dir_mapping_index = 0;
+        dir_mapping_index = mapping_info.starting_logical_number;
     }
     else {
-        dir_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_logical_number;
+        dir_mapping_index = dentry->d_inode->i_ino;
     }
 
     //디렉토리의 hodo 아이노드를 저장장치로부터 읽어온다
@@ -999,8 +1002,26 @@ int hodo_get_next_logical_number(void) {
     return -1;
 }
 
+static void hodo_set_GC_bitmap(struct hodo_block_pos physical_address) {
+    int zone_id = physical_address.zone_id;
+    int block_index = physical_address.block_index;
+
+    mapping_info.GC_bitmap[zone_id][block_index / 32] |= (1 << (31 - (block_index % 32)));
+}
+
+static void hodo_unset_GC_bitmap(struct hodo_block_pos physical_address) {
+    int zone_id = physical_address.zone_id;
+    int block_index = physical_address.block_index;
+
+    mapping_info.GC_bitmap[zone_id][block_index / 32] &= ~(1 << (31 - (block_index % 32)));
+}
+
+static void GC_print(void) {
+    pr_info("%x\n", mapping_info.GC_bitmap[1][0]);
+}
+
 int hodo_erase_table_entry(int table_entry_index) {
-    mapping_info.mapping_table[table_entry_index].zone_id = 0;  // check invalid
+    mapping_info.mapping_table[table_entry_index - mapping_info.starting_logical_number].zone_id = 0;  // check invalid
     hodo_unset_logical_bitmap(table_entry_index/32, table_entry_index%32);
     return 0;
 }
@@ -1009,7 +1030,7 @@ int hodo_erase_table_entry(int table_entry_index) {
 ssize_t hodo_read_struct(logical_block_number_t logical_block_number, void *out_buf, size_t len) {
     ZONEFS_TRACE();
     
-    struct hodo_block_pos block_pos = mapping_info.mapping_table[logical_block_number];
+    struct hodo_block_pos block_pos = mapping_info.mapping_table[logical_block_number - mapping_info.starting_logical_number];
 
     uint32_t zone_id = block_pos.zone_id;
     uint64_t offset = block_pos.block_index * HODO_DATABLOCK_SIZE;
@@ -1071,32 +1092,21 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
     if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE)
         return -EINVAL;
 
-    if (offset + len >= hodo_zone_size) {
-        if (zone_id + 1 > hodo_nr_zones) {
-            pr_err("device is full\n");
-            return 0;
-        }
-
-        zone_id++;
-        offset = 0;
-    }
-
+    hodo_set_GC_bitmap(mapping_info.wp);
     if(*logical_block_number == 0){
-        if (((char*)buf)[0] == 'I' && ((char*)buf)[1] == 'N' && ((char*)buf)[2] == 'O') {
-            if (((struct hodo_inode *)buf)->i_ino != mapping_info.starting_logical_number) {
-                *logical_block_number = hodo_get_next_logical_number();
-            }
-        }
-        else {
-            *logical_block_number = hodo_get_next_logical_number();
-        }
+        *logical_block_number = hodo_get_next_logical_number();
     }
+    else {  // unset GC bitmap
+        struct hodo_block_pos invalid_pos = mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number];
+        hodo_unset_GC_bitmap(invalid_pos);
+    }
+    GC_print();
 
-    mapping_info.mapping_table[*logical_block_number] = mapping_info.wp;
+    mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number] = mapping_info.wp;
 
     if (((char*)buf)[0] == 'D' && ((char*)buf)[1] == 'A' && ((char*)buf)[2] == 'T') {
         pr_info("logical block number: %d\n", logical_block_number);
-        ((struct hodo_datablock*)buf)->logical_block_number = logical_block_number;
+        ((struct hodo_datablock*)buf)->logical_block_number = *logical_block_number;
     }
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기

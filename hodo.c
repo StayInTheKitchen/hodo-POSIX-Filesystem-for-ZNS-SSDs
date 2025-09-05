@@ -124,8 +124,7 @@ void hodo_init(void) {
 
         root_inode.type = 1;
 
-        root_inode.i_ino = mapping_info.starting_logical_number;
-        hodo_get_next_logical_number();
+        root_inode.i_ino = hodo_get_next_logical_number();
         root_inode.i_mode = S_IFDIR; 
 
         root_inode.i_uid = current_fsuid();
@@ -134,9 +133,7 @@ void hodo_init(void) {
         root_inode.i_nlink = 1;
 
         // root inode를 wp에 쓰기
-        mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_logical_number].zone_id = mapping_info.wp.zone_id; 
-        mapping_info.mapping_table[root_inode.i_ino - mapping_info.starting_logical_number].block_index = mapping_info.wp.block_index;
-        logical_block_number_t root_inode_logical_number = 0;
+        logical_block_number_t root_inode_logical_number = root_inode.i_ino;
         hodo_write_struct(&root_inode, sizeof(root_inode), &root_inode_logical_number);
     }
 }
@@ -213,7 +210,7 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 	    return zonefs_file_operations.read_iter(iocb, to);
     }
 
-    logical_block_number_t file_inode_logical_number = file_ino - mapping_info.starting_logical_number;
+    logical_block_number_t file_inode_logical_number = file_ino;
     struct hodo_inode file_inode = {0,};
 
     hodo_read_struct(file_inode_logical_number, &file_inode, sizeof(struct hodo_inode));
@@ -418,7 +415,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
     hinode.i_mtime = now;
     hinode.i_ctime = now;
 
-    logical_block_number_t hinode_logical_number = hinode.i_ino - mapping_info.starting_logical_number;
+    logical_block_number_t hinode_logical_number = hinode.i_ino;
     hodo_write_struct(&hinode, sizeof(struct hodo_inode), &hinode_logical_number);
 
     add_dirent(dir, &hinode);
@@ -465,13 +462,13 @@ static int hodo_unlink(struct inode *dir,struct dentry *dentry) {
     uint64_t target_mapping_index;
     if (dir == dentry->d_sb->s_root->d_inode) {
         pr_info("zonefs: unlink in root directory\n"); 
-        parent_mapping_index = 0;
-        target_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_logical_number;
+        parent_mapping_index = mapping_info.starting_logical_number;
+        target_mapping_index = dentry->d_inode->i_ino;
     }
     else {
         pr_info("zonefs: unlink in non-root directory\n"); 
-        parent_mapping_index = dir->i_ino - mapping_info.starting_logical_number;
-        target_mapping_index = dentry->d_inode->i_ino - mapping_info.starting_logical_number;
+        parent_mapping_index = dir->i_ino;
+        target_mapping_index = dentry->d_inode->i_ino;
     }
 
     //매핑 테이블에서 삭제 파일에 관한 행은 이제 쓰이지 않으므로, 비트맵에서 invalid(0)으로 표시한다
@@ -545,7 +542,7 @@ static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry 
     hinode.i_mtime = now;
     hinode.i_ctime = now;
 
-    logical_block_number_t hodo_inode_logical_number = hinode.i_ino - mapping_info.starting_logical_number;
+    logical_block_number_t hodo_inode_logical_number = hinode.i_ino;
     hodo_write_struct(&hinode, sizeof(struct hodo_inode), &hodo_inode_logical_number);
 
     add_dirent(dir, &hinode);
@@ -688,9 +685,9 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
     logical_block_number_t parent_hodo_inode_logical_number;
 
     if(dir == dentry->d_sb->s_root->d_inode)
-        parent_hodo_inode_logical_number = 0;
+        parent_hodo_inode_logical_number = mapping_info.starting_logical_number;
     else
-        parent_hodo_inode_logical_number = parent_hodo_inode_number - mapping_info.starting_logical_number;
+        parent_hodo_inode_logical_number = parent_hodo_inode_number;
 
     struct hodo_inode parent_hodo_inode;
     hodo_read_struct(parent_hodo_inode_logical_number, &parent_hodo_inode, sizeof(struct hodo_inode));
@@ -705,7 +702,7 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
     }
 
     pr_info("zonefs: target hodo inode number: %d\n", target_hodo_inode_number);
-    logical_block_number_t target_hodo_inode_logical_number = target_hodo_inode_number - mapping_info.starting_logical_number;
+    logical_block_number_t target_hodo_inode_logical_number = target_hodo_inode_number;
     struct hodo_inode target_hodo_inode = { 0, };
     hodo_read_struct(target_hodo_inode_logical_number, &target_hodo_inode, sizeof(struct hodo_inode));
 
@@ -771,11 +768,11 @@ static int hodo_sub_readdir(struct file *file, struct dir_context *ctx) {
 
     if (inode == d_inode(inode->i_sb->s_root)){
         pr_info("zonefs: readdir on root mount point\n");
-        dir_hodo_mapping_index = 0;
+        dir_hodo_mapping_index = mapping_info.starting_logical_number;
     }
     else {
         pr_info("zonefs: readdir on non-root user dir\n");
-        dir_hodo_mapping_index = inode->i_ino - mapping_info.starting_logical_number;
+        dir_hodo_mapping_index = inode->i_ino; 
     }
 
     //디렉토리의 hodo 아이노드를 저장장치로부터 읽어온다
