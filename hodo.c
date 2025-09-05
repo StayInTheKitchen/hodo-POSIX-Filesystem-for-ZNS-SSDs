@@ -108,6 +108,13 @@ void hodo_init(void) {
         mapping_info.wp.zone_id = 1;
         mapping_info.wp.block_index = 0;
 
+        mapping_info.invalid_count = 0;
+        mapping_info.valid_count = 0;
+
+        mapping_info.swap_wp.zone_id = hodo_nr_zones - 2;
+        mapping_info.swap_wp.block_index = 0;
+        
+
         // root direcotry inode 설정
         struct hodo_inode root_inode;
 
@@ -825,6 +832,10 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
             return temp_written_size;
         else
             total_written_size += temp_written_size;
+    }
+
+    if (GC_timing()) {
+        GC();
     }
     
     return total_written_size;

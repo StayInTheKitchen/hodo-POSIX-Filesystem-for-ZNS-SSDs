@@ -291,6 +291,7 @@ extern const struct file_operations zonefs_dir_operations;
 
 extern int hodo_nr_zones;
 extern int hodo_zone_size;
+extern struct block_device* global_device;
 
 /* In file.c */
 extern const struct address_space_operations zonefs_file_aops;

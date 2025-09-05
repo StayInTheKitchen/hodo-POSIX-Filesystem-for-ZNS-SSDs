@@ -36,6 +36,7 @@
 
 int hodo_nr_zones = 0;
 int hodo_zone_size = 0;
+struct block_device* global_device;
 
 /*
  * Get the name of a zone group directory.
@@ -932,6 +933,7 @@ static int zonefs_get_zone_info_cb(struct blk_zone *zone, unsigned int idx,
 static int zonefs_get_zone_info(struct zonefs_zone_data *zd)
 {
         struct block_device *bdev = zd->sb->s_bdev;
+        global_device = bdev;
         int ret;
 
         zd->zones = kvcalloc(bdev_nr_zones(bdev), sizeof(struct blk_zone),

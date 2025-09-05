@@ -94,7 +94,11 @@ struct hodo_mapping_info {
     logical_block_number_t starting_logical_number;
     struct hodo_block_pos wp;
     uint32_t logical_entry_bitmap[NUMBER_MAPPING_TABLE_ENTRY / 32];
+
+    uint32_t invalid_count;
+    uint32_t valid_count;
     uint32_t GC_bitmap[NUMBER_ZONES][BLOCKS_PER_ZONE / 32];
+    struct hodo_block_pos swap_wp;
 };
 
 extern char mount_point_path[16];
