@@ -33,7 +33,7 @@ struct hodo_block_pos hodo_get_next_GC_valid(void) {
         for (int j = 0; j < (BLOCKS_PER_ZONE / 32); ++j) {
             if (mapping_info.GC_bitmap[i][j] != 0x00000000) {
                 for (int k = 0; k < 32; ++k) {
-                    if (mapping_info.GC_bitmap[i][j] & (1 << (31 - k)) != 0) {
+                    if ((mapping_info.GC_bitmap[i][j] & (1 << (31 - k))) != 0) {
                         ret.zone_id = i;
                         ret.block_index = (j * 32) + k;
                         pr_info("GC bitmap return value: (%d,%d)\n", ret.zone_id, ret.block_index);
@@ -251,14 +251,22 @@ int GC(void) {
     if (mapping_info.swap_wp.block_index != 0) {
         struct hodo_block_pos swap_out_ptr = {hodo_nr_zones-2, 0};
 
-        sector_t sector = (mapping_info.wp.zone_id * (ZONE_SIZE_MB * (1 << 20))) / 512;
-        sector_t nr_sector = (ZONE_SIZE_MB * (1 << 20)) / 512;
+        sector_t zone_start_sector;
+        sector_t zone_size_sectors;
+        int ret;
 
-        blkdev_zone_mgmt(global_device,
-                        REQ_OP_ZONE_RESET,
-                        sector,
-                        nr_sector,
-                        GFP_KERNEL);
+        /* zone size (섹터 단위) */
+        zone_size_sectors = bdev_zone_sectors(global_device);
+        pr_info("GC zone size: %d\n", zone_size_sectors);
+
+        if (!zone_size_sectors)
+            return -EINVAL;
+
+        /* zone 1 시작 섹터 = zone_size * 1 */
+        zone_start_sector = zone_size_sectors * 1;
+
+        /* zone reset 수행 */
+        ret = blkdev_zone_mgmt(global_super_block->s_bdev, REQ_OP_ZONE_RESET, zone_start_sector, zone_size_sectors, GFP_NOFS);
 
         while (swap_out_ptr.block_index <= mapping_info.swap_wp.block_index) {
             hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
@@ -275,14 +283,14 @@ int GC(void) {
             swap_out_ptr.block_index++;
         }
 
-        sector = (mapping_info.swap_wp.zone_id * (ZONE_SIZE_MB * (1 << 20))) / 512;
-        nr_sector = (ZONE_SIZE_MB * (1 << 20)) / 512;
+        // sector = (mapping_info.swap_wp.zone_id * (ZONE_SIZE_MB * (1 << 20))) / 512;
+        // nr_sector = (ZONE_SIZE_MB * (1 << 20)) / 512;
 
-        blkdev_zone_mgmt(global_device,
-                        REQ_OP_ZONE_RESET,
-                        sector,
-                        nr_sector,
-                        GFP_KERNEL);
+        // blkdev_zone_mgmt(global_device,
+        //                 REQ_OP_ZONE_RESET,
+        //                 sector,
+        //                 nr_sector,
+        //                 GFP_KERNEL);
     }
 
     kfree(temp_datablock);

@@ -36,7 +36,8 @@
 
 int hodo_nr_zones = 0;
 int hodo_zone_size = 0;
-struct block_device* global_device;
+struct block_device *global_device;
+struct super_block *global_super_block;
 
 /*
  * Get the name of a zone group directory.
@@ -167,6 +168,8 @@ void zonefs_update_stats(struct inode *inode, loff_t new_isize)
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         loff_t old_isize = i_size_read(inode);
         loff_t nr_blocks;
+
+        global_super_block = sb;
 
         if (new_isize == old_isize)
                 return;
