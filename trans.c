@@ -255,18 +255,9 @@ int GC(void) {
         sector_t zone_size_sectors;
         int ret;
 
-        /* zone size (섹터 단위) */
-        zone_size_sectors = bdev_zone_sectors(global_device);
-        pr_info("GC zone size: %d\n", zone_size_sectors);
+        // TODO: 이 부분에서 wp에 있는 zone을 reset해야 됨
 
-        if (!zone_size_sectors)
-            return -EINVAL;
-
-        /* zone 1 시작 섹터 = zone_size * 1 */
-        zone_start_sector = zone_size_sectors * 1;
-
-        /* zone reset 수행 */
-        ret = blkdev_zone_mgmt(global_super_block->s_bdev, REQ_OP_ZONE_RESET, zone_start_sector, zone_size_sectors, GFP_NOFS);
+        zonefs_file_truncate(inode, 0);
 
         while (swap_out_ptr.block_index <= mapping_info.swap_wp.block_index) {
             hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
@@ -283,14 +274,7 @@ int GC(void) {
             swap_out_ptr.block_index++;
         }
 
-        // sector = (mapping_info.swap_wp.zone_id * (ZONE_SIZE_MB * (1 << 20))) / 512;
-        // nr_sector = (ZONE_SIZE_MB * (1 << 20)) / 512;
-
-        // blkdev_zone_mgmt(global_device,
-        //                 REQ_OP_ZONE_RESET,
-        //                 sector,
-        //                 nr_sector,
-        //                 GFP_KERNEL);
+        // TODO: 이 부분에서 swap_wp에 있는 zone을 reset해야 됨
     }
 
     kfree(temp_datablock);
