@@ -10,6 +10,7 @@
  */
 
 #include <linux/blkdev.h>
+#include <linux/namei.h>
 #include "zonefs.h"
 #include "hodo.h"
 #include "trans.h"
@@ -256,10 +257,14 @@ int GC(void) {
         int ret;
 
         // TODO: 이 부분에서 wp에 있는 zone을 reset해야 됨
-
+        struct path path;
+        struct inode *inode;
+        kern_path("/mnt/seq/1", LOOKUP_FOLLOW, &path);      //나중에 존파일 1번 하드 코딩되어있는거 곤치기
+        inode = d_inode(path.dentry);
         zonefs_file_truncate(inode, 0);
+        path_put(&path);   //작업이 끝나면 밑의 걸로 작성해줘야 busy가 풀리나?(아직 확인X, 시도해봐야함)
 
-        while (swap_out_ptr.block_index <= mapping_info.swap_wp.block_index) {
+        while (swap_out_ptr.block_index < mapping_info.swap_wp.block_index) {
             hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
 
             logical_block_number_t swap_logical_block_number;
@@ -275,6 +280,10 @@ int GC(void) {
         }
 
         // TODO: 이 부분에서 swap_wp에 있는 zone을 reset해야 됨
+        kern_path("/mnt/seq/14", LOOKUP_FOLLOW, &path);      //나중에 존파일 1번 하드 코딩되어있는거 곤치기
+        inode = d_inode(path.dentry);
+        zonefs_file_truncate(inode, 0);
+        path_put(&path);   //작업이 끝나면 밑의 걸로 작성해줘야 busy가 풀리나?(아직 확인X, 시도해봐야함)
     }
 
     kfree(temp_datablock);
