@@ -15,6 +15,16 @@
 #include "hodo.h"
 #include "trans.h"
 
+int zone_1_valid_count = 0;
+int zone_2_valid_count = 0;
+
+int zone_1_valid_set_count = 0;
+int zone_2_valid_set_count = 0;
+
+int zone_1_valid_unset_count = 0;
+int zone_2_valid_unset_count = 0;
+
+
 /*-------------------------------------------------------------static 함수 선언-------------------------------------------------------------------------------*/
 static bool hodo_dir_emit(struct dir_context *ctx, struct hodo_dirent *temp_dirent);
 static void hodo_set_logical_bitmap(int i, int j);
@@ -38,6 +48,9 @@ struct hodo_block_pos hodo_get_next_GC_valid(void) {
                         ret.zone_id = i;
                         ret.block_index = (j * 32) + k;
                         // pr_info("GC bitmap return value: (%d,%d)\n", ret.zone_id, ret.block_index);
+                        if(ret.zone_id == 1) zone_1_valid_count++;
+                        else if(ret.zone_id == 2) zone_2_valid_count++;
+                        //pr_info("count is : %d / set zone number : %d\n", valid_cnt++, ret.zone_id);
                         return ret;
                     }
                 }
@@ -247,6 +260,11 @@ int GC(void) {
         valid_block_pos = hodo_get_next_GC_valid();
     }
 
+    pr_info("zone_1_valid_count is : %d / zone_2_valid_count is : %d\n", zone_1_valid_count, zone_2_valid_count);
+    pr_info("zone_1_valid_set_count is : %d / zone_2_valid_set_count is : %d\n", zone_1_valid_set_count, zone_2_valid_set_count);
+    pr_info("zone_1_valid_unset_count is : %d / zone_2_valid_unset_count is : %d\n", zone_1_valid_unset_count, zone_2_valid_unset_count);
+
+
     // 꼬투리 zone
     if (mapping_info.swap_wp.block_index != 0) {
         // pr_info("KOTORI called!\n");
@@ -387,7 +405,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     //따라서 굳이 타겟 아이노드가 루트 아이노드인지를 확인해서 매핑 인덱스 0번을 수동으로 할당할 필요가 없다.
     struct inode *target_inode = iocb->ki_filp->f_inode;
     uint64_t target_ino = target_inode->i_ino;
-    uint64_t target_mapping_index = target_ino ;
+    uint64_t target_mapping_index = target_ino;
 
     //타겟 파일의 아이노드를 불러오기.
     struct hodo_inode target_hodo_inode;
@@ -610,14 +628,64 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block){
         uint64_t block_pos_index_in_single_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode);
         block_pos_index_in_current_indirect_block = block_pos_index_in_single_indirect_datablock;
+        pr_info("DAT1 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block){
         uint64_t block_pos_index_in_double_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block) / num_of_block_poses_in_datablock;
-        block_pos_index_in_current_indirect_block = block_pos_index_in_double_indirect_datablock;
+        uint64_t block_pos_index_in_single_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block) % num_of_block_poses_in_datablock;
+        if(
+            current_indirect_block->magic[0] == 'D' &&
+            current_indirect_block->magic[1] == 'A' &&
+            current_indirect_block->magic[2] == 'T' &&
+            current_indirect_block->magic[3] == '2'
+        ){
+            block_pos_index_in_current_indirect_block = block_pos_index_in_double_indirect_datablock;
+        }
+        else if(
+            current_indirect_block->magic[0] == 'D' &&
+            current_indirect_block->magic[1] == 'A' &&
+            current_indirect_block->magic[2] == 'T' &&
+            current_indirect_block->magic[3] == '1'
+        ){
+            block_pos_index_in_current_indirect_block = block_pos_index_in_single_indirect_datablock;
+        }
+        else {
+            return -EIO;
+        }
+
+        pr_info("DAT2 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block + num_of_direct_blocks_in_triple_indirect_block){
         uint64_t block_pos_index_in_triple_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block - num_of_direct_blocks_in_double_indirect_block) / num_of_block_poses_in_datablock / num_of_block_poses_in_datablock;
-        block_pos_index_in_current_indirect_block = block_pos_index_in_triple_indirect_datablock;
+        uint64_t block_pos_index_in_double_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block - num_of_direct_blocks_in_double_indirect_block) / num_of_block_poses_in_datablock % num_of_block_poses_in_datablock;
+        uint64_t block_pos_index_in_single_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block - num_of_direct_blocks_in_double_indirect_block) % num_of_block_poses_in_datablock;
+        if(
+            current_indirect_block->magic[0] == 'D' &&
+            current_indirect_block->magic[1] == 'A' &&
+            current_indirect_block->magic[2] == 'T' &&
+            current_indirect_block->magic[3] == '3'
+        ){
+            block_pos_index_in_current_indirect_block = block_pos_index_in_triple_indirect_datablock;
+        }
+        else if(
+            current_indirect_block->magic[0] == 'D' &&
+            current_indirect_block->magic[1] == 'A' &&
+            current_indirect_block->magic[2] == 'T' &&
+            current_indirect_block->magic[3] == '2'
+        ){
+            block_pos_index_in_current_indirect_block = block_pos_index_in_double_indirect_datablock;
+        }
+        else if(
+            current_indirect_block->magic[0] == 'D' &&
+            current_indirect_block->magic[1] == 'A' &&
+            current_indirect_block->magic[2] == 'T' &&
+            current_indirect_block->magic[3] == '1'
+        ){
+            block_pos_index_in_current_indirect_block = block_pos_index_in_single_indirect_datablock;
+        }
+        else {
+            return -EIO;
+        }
     }
     else{
         // pr_info("zonefs: (error in hodo_sub_file_write_iter) write_iter over the triple_indirect_data_block. we cannot do it.\n");
@@ -652,8 +720,10 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
 
     ssize_t written_size = 0;
 
-    if(is_directblock(target_block))
+    if(is_directblock(target_block)){
+        pr_info("DAT1->DAT0 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
         written_size = write_one_block_by_direct_block(iocb, from, &written_logical_number, target_block);
+    }
     else
         written_size = write_one_block_by_indirect_block(iocb, from, &written_logical_number, target_block);
 
@@ -666,6 +736,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
     kfree(target_block);
     return written_size;
 }
+
 
 /*-------------------------------------------------------------lookup용 함수----------------------------------------------------------------------------------*/
 uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name) {
@@ -1287,12 +1358,20 @@ static void hodo_set_GC_bitmap(struct hodo_block_pos physical_address) {
     int zone_id = physical_address.zone_id;
     int block_index = physical_address.block_index;
 
+    //pr_info("set zone is over one : %d\n", zone_id);
+    if(zone_id == 1) zone_1_valid_set_count++;
+    else if(zone_id == 2) zone_2_valid_set_count++;
+
     mapping_info.GC_bitmap[zone_id][block_index / 32] |= (1 << (31 - (block_index % 32)));
 }
 
 static void hodo_unset_GC_bitmap(struct hodo_block_pos physical_address) {
     int zone_id = physical_address.zone_id;
     int block_index = physical_address.block_index;
+
+
+    if(zone_id == 1) zone_1_valid_unset_count++;
+    else if(zone_id == 2) zone_2_valid_unset_count++;
 
     mapping_info.GC_bitmap[zone_id][block_index / 32] &= ~(1 << (31 - (block_index % 32)));
 }

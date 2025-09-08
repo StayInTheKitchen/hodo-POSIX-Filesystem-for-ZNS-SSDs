@@ -193,7 +193,7 @@ const struct address_space_operations zonefs_file_aops = {
 
 int zonefs_file_truncate(struct inode *inode, loff_t isize)
 {
-	ZONEFS_TRACE();
+	//ZONEFS_TRACE();
 	struct zonefs_inode_info *zi = ZONEFS_I(inode);
 	struct zonefs_zone *z = zonefs_inode_zone(inode);
 	loff_t old_isize;
@@ -775,7 +775,7 @@ unlock:
 
 static int zonefs_file_open(struct inode *inode, struct file *file)
 {
-	ZONEFS_TRACE();
+	//ZONEFS_TRACE();
 	int ret;
 
 	file->f_mode |= FMODE_CAN_ODIRECT;
