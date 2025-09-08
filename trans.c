@@ -30,14 +30,14 @@ struct hodo_block_pos hodo_get_next_GC_valid(void) {
     struct hodo_block_pos start_pos = mapping_info.wp;
     struct hodo_block_pos ret = {0,0}; 
 
-    for (int i = start_pos.zone_id; i < NUMBER_ZONES - 2; ++i) {
+    for (int i = 1; i < NUMBER_ZONES - 2; ++i) {
         for (int j = 0; j < (BLOCKS_PER_ZONE / 32); ++j) {
             if (mapping_info.GC_bitmap[i][j] != 0x00000000) {
                 for (int k = 0; k < 32; ++k) {
                     if ((mapping_info.GC_bitmap[i][j] & (1 << (31 - k))) != 0) {
                         ret.zone_id = i;
                         ret.block_index = (j * 32) + k;
-                        pr_info("GC bitmap return value: (%d,%d)\n", ret.zone_id, ret.block_index);
+                        // pr_info("GC bitmap return value: (%d,%d)\n", ret.zone_id, ret.block_index);
                         return ret;
                     }
                 }
@@ -49,7 +49,7 @@ struct hodo_block_pos hodo_get_next_GC_valid(void) {
 }
 
 static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_t *logical_block_number) {
-    ZONEFS_TRACE();
+    // // ZONEFS_TRACE();
 
     uint32_t zone_id = mapping_info.swap_wp.zone_id;
     uint64_t offset = mapping_info.swap_wp.block_index * HODO_DATABLOCK_SIZE;
@@ -58,20 +58,10 @@ static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_
         return -EINVAL;
 
     hodo_set_GC_bitmap(mapping_info.swap_wp);
-    if(*logical_block_number == 0){
-        *logical_block_number = hodo_get_next_logical_number();
-    }
-    else {  // unset GC bitmap
-        struct hodo_block_pos invalid_pos = mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number];
-        hodo_unset_GC_bitmap(invalid_pos);
-    }
+    struct hodo_block_pos invalid_pos = mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number];
+    hodo_unset_GC_bitmap(invalid_pos);
 
     mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number] = mapping_info.swap_wp;
-
-    if (((char*)buf)[0] == 'D' && ((char*)buf)[1] == 'A' && ((char*)buf)[2] == 'T') {
-        pr_info("logical block number: %d\n", logical_block_number);
-        ((struct hodo_datablock*)buf)->logical_block_number = *logical_block_number;
-    }
 
     //seq 파일을 열기 위해 경로 이름(path) 만들기
     const char path_up[16];
@@ -105,7 +95,7 @@ static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_
     kiocb.ki_pos = offset;
     kiocb.ki_flags = IOCB_DIRECT;
 
-    pr_info("path: %s\toffset: %ld\n", path, offset);
+    // pr_info("path: %s\toffset: %ld\n", path, offset);
     //위 두 정보를 가지고 write_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
         pr_err("zonefs: read_iter not available on file\n");
@@ -125,7 +115,7 @@ static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_
 }
 
 static ssize_t hodo_GC_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t len) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     uint32_t zone_id = block_pos.zone_id;
     uint64_t offset = block_pos.block_index * HODO_DATABLOCK_SIZE;
@@ -210,16 +200,22 @@ int GC(void) {
         if (mapping_info.swap_wp.block_index >= BLOCKS_PER_ZONE) {
             struct hodo_block_pos swap_out_ptr = {hodo_nr_zones-2, 0};
 
-            sector_t sector = (mapping_info.wp.zone_id * (ZONE_SIZE_MB * (1 << 20))) / 512;
-            sector_t nr_sector = (ZONE_SIZE_MB * (1 << 20)) / 512;
+            // wp zone을 reset
+            // struct path path;
+            // struct inode *inode;
+            // char path_buf[32];
 
-            blkdev_zone_mgmt(global_device,
-                           REQ_OP_ZONE_RESET,
-                           sector,
-                           nr_sector,
-                           GFP_KERNEL);
+            // scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.wp.zone_id);
 
-            while (swap_out_ptr.block_index <= BLOCKS_PER_ZONE) {
+            // if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+            //     inode = d_inode(path.dentry);
+            //     zonefs_file_truncate(inode, 0);
+            //     path_put(&path);
+            // } else {
+            //     pr_err("Failed to resolve path: %s\n", path_buf);
+            // }
+
+            while (swap_out_ptr.block_index < BLOCKS_PER_ZONE) {
                 hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
 
                 logical_block_number_t swap_logical_block_number;
@@ -234,14 +230,16 @@ int GC(void) {
                 swap_out_ptr.block_index++;
             }
 
-            sector = (mapping_info.swap_wp.zone_id * (ZONE_SIZE_MB * (1 << 20))) / 512;
-            nr_sector = (ZONE_SIZE_MB * (1 << 20)) / 512;
+            // swap_wp zone을 reset
+            // scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
 
-            blkdev_zone_mgmt(global_device,
-                           REQ_OP_ZONE_RESET,
-                           sector,
-                           nr_sector,
-                           GFP_KERNEL);
+            // if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+            //     inode = d_inode(path.dentry);
+            //     zonefs_file_truncate(inode, 0);
+            //     path_put(&path);
+            // } else {
+            //     pr_err("Failed to resolve path: %s\n", path_buf);
+            // }
 
             mapping_info.swap_wp.block_index = 0;
         }
@@ -249,20 +247,25 @@ int GC(void) {
         valid_block_pos = hodo_get_next_GC_valid();
     }
 
+    // 꼬투리 zone
     if (mapping_info.swap_wp.block_index != 0) {
+        // pr_info("KOTORI called!\n");
         struct hodo_block_pos swap_out_ptr = {hodo_nr_zones-2, 0};
 
-        sector_t zone_start_sector;
-        sector_t zone_size_sectors;
-        int ret;
-
-        // TODO: 이 부분에서 wp에 있는 zone을 reset해야 됨
+        // wp zone을 reset
         struct path path;
         struct inode *inode;
-        kern_path("/mnt/seq/1", LOOKUP_FOLLOW, &path);      //나중에 존파일 1번 하드 코딩되어있는거 곤치기
-        inode = d_inode(path.dentry);
-        zonefs_file_truncate(inode, 0);
-        path_put(&path);   //작업이 끝나면 밑의 걸로 작성해줘야 busy가 풀리나?(아직 확인X, 시도해봐야함)
+        char path_buf[32];
+
+        scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.wp.zone_id);
+
+        if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+            inode = d_inode(path.dentry);
+            zonefs_file_truncate(inode, 0);
+            path_put(&path);
+        } else {
+            pr_err("Failed to resolve path: %s\n", path_buf);
+        }
 
         while (swap_out_ptr.block_index < mapping_info.swap_wp.block_index) {
             hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
@@ -279,11 +282,16 @@ int GC(void) {
             swap_out_ptr.block_index++;
         }
 
-        // TODO: 이 부분에서 swap_wp에 있는 zone을 reset해야 됨
-        kern_path("/mnt/seq/14", LOOKUP_FOLLOW, &path);      //나중에 존파일 1번 하드 코딩되어있는거 곤치기
-        inode = d_inode(path.dentry);
-        zonefs_file_truncate(inode, 0);
-        path_put(&path);   //작업이 끝나면 밑의 걸로 작성해줘야 busy가 풀리나?(아직 확인X, 시도해봐야함)
+        // swap_wp zone을 reset
+        // scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
+
+        // if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+        //     inode = d_inode(path.dentry);
+        //     zonefs_file_truncate(inode, 0);
+        //     path_put(&path);
+        // } else {
+        //     pr_err("Failed to resolve path: %s\n", path_buf);
+        // }
     }
 
     kfree(temp_datablock);
@@ -294,17 +302,17 @@ int GC(void) {
 /*-----------------------------------------------------------read_iter용 함수------------------------------------------------------------------------------*/
 // file_inode에서 n번째 datablock을 dst_datablock으로 copy
 void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datablock *dst_datablock) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     int num_direct_block = sizeof(file_inode->direct) / sizeof((file_inode->direct)[0]);  // direct block의 개수
     int num_block_pos_in_indirect_block = HODO_DATA_SIZE / BLOCK_PTR_SZ;
 
     if (n < num_direct_block) { // direct block
-        pr_info("read direct block\n");
+        // pr_info("read direct block\n");
         logical_block_number_t data_block_logical_number = file_inode->direct[n];
         hodo_read_struct(data_block_logical_number, dst_datablock, sizeof(struct hodo_datablock));
     }
     else if (n < (num_direct_block + num_block_pos_in_indirect_block)) {    // single indirect block
-        pr_info("read single indirect block\n");
+        // pr_info("read single indirect block\n");
         int nth_in_direct_block = n - num_direct_block;
 
         struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
@@ -318,7 +326,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
         kfree(temp_datablock);
     }
     else if (n < (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block))) {    // double indirect block
-        pr_info("read double indirect block\n");
+        // pr_info("read double indirect block\n");
         int nth_in_single_indirect_block = (n - (num_direct_block + num_block_pos_in_indirect_block)) / num_block_pos_in_indirect_block;
         int nth_in_direct_block = (n - (num_direct_block + num_block_pos_in_indirect_block)) % num_block_pos_in_indirect_block;
 
@@ -337,7 +345,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
         kfree(temp_datablock);
     }
     else {  // triple indirect block
-        pr_info("read triple indirect block\n");
+        // pr_info("read triple indirect block\n");
         int nth_in_double_indirect_block = (n - (num_direct_block + num_block_pos_in_indirect_block + (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block)));
         nth_in_double_indirect_block /= (num_block_pos_in_indirect_block * num_block_pos_in_indirect_block);
 
@@ -373,7 +381,7 @@ void hodo_read_nth_block(struct hodo_inode *file_inode, int n, struct hodo_datab
 
 /*-------------------------------------------------------------write_iter용 함수 선언----------------------------------------------------------------------------*/
 ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     //write iter의 대상은 a.txt와 같은 일반 파일이므로, 해당 아이노드는 절대로 루트 디렉토리 아이노드일 수가 없다.
     //따라서 굳이 타겟 아이노드가 루트 아이노드인지를 확인해서 매핑 인덱스 0번을 수동으로 할당할 필요가 없다.
@@ -390,12 +398,12 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
 
     if (iocb->ki_flags & IOCB_APPEND)
         iocb->ki_pos = i_size_read(target_inode);
-    pr_info("zonefs: write_iter original target offset is %d, new i_size is %d\n", iocb->ki_pos, target_inode->i_size);
+    // pr_info("zonefs: write_iter original target offset is %d, new i_size is %d\n", iocb->ki_pos, target_inode->i_size);
     
     //어디에다가 파일을 쓸지를 추가한다.
     struct hodo_datablock *target_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
     if (target_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
         return -ENOMEM;
     }
 
@@ -411,7 +419,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     ssize_t written_size = 0;
     if(data_block_index         < num_of_direct_blocks_in_hodo_inode){
         //direct_data_block(0~9)에 쓸 위치가 존재
-        pr_info("zonefs: write_iter in direct_data_block\n");
+        // pr_info("zonefs: write_iter in direct_data_block\n");
 
         if(is_block_logical_number_valid(target_hodo_inode.direct[data_block_index]))
             hodo_read_struct(target_hodo_inode.direct[data_block_index], target_block, HODO_DATABLOCK_SIZE);
@@ -430,7 +438,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     } 
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block){
         //singe_indirect_data_block에 쓸 위치가 존재
-        pr_info("zonefs: write_iter in single_indirect_data_block\n");
+        // pr_info("zonefs: write_iter in single_indirect_data_block\n");
 
         if(is_block_logical_number_valid(target_hodo_inode.single_indirect))
             hodo_read_struct(target_hodo_inode.single_indirect, target_block, HODO_DATABLOCK_SIZE);
@@ -449,7 +457,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block){
         //double_indirect_data_block에 쓸 위치가 존재
-        pr_info("zonefs: write_iter in double_indirect_data_block\n");
+        // pr_info("zonefs: write_iter in double_indirect_data_block\n");
 
         if(is_block_logical_number_valid(target_hodo_inode.double_indirect))
             hodo_read_struct(target_hodo_inode.double_indirect, target_block, HODO_DATABLOCK_SIZE);
@@ -468,7 +476,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block + num_of_direct_blocks_in_triple_indirect_block){
         //triple_indirect_data_block에 쓸 위치가 존재
-        pr_info("zonefs: write_iter in triple_indirect_data_block\n");
+        // pr_info("zonefs: write_iter in triple_indirect_data_block\n");
 
         if(is_block_logical_number_valid(target_hodo_inode.triple_indirect))
             hodo_read_struct(target_hodo_inode.triple_indirect, target_block, HODO_DATABLOCK_SIZE);
@@ -487,7 +495,7 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
     }
     else {
         //파일시스템 상 파일의 최대 크기를 넘어선 오프셋에는 쓰기가 불가능 하다
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) write_iter over the triple_indirect_data_block. we cannot do it.\n");
+        // pr_info("zonefs: (error in hodo_sub_file_write_iter) write_iter over the triple_indirect_data_block. we cannot do it.\n");
         kfree(target_block);
         return -EFBIG;
     }
@@ -500,16 +508,16 @@ ssize_t write_one_block(struct kiocb *iocb, struct iov_iter *from){
 
     iocb->ki_pos += written_size;
     i_size_write(target_inode, iocb->ki_pos);
-    pr_info("zonefs: write_iter new target offset is %d, new i_size is %d\n", iocb->ki_pos, target_inode->i_size);
+    // pr_info("zonefs: write_iter new target offset is %d, new i_size is %d\n", iocb->ki_pos, target_inode->i_size);
     return written_size;
 }
 
 ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *from, logical_block_number_t *out_logical_number, struct hodo_datablock *current_direct_block){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct hodo_datablock *target_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
     if (target_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
         return -ENOMEM;
     }
 
@@ -526,7 +534,7 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
     uint64_t left_len = offset % HODO_DATA_SIZE;
     if((left_len != 0) && current_direct_block != NULL) {
         //current_direct_block의 일부에 이미 이전에 쓰인 데이터(left over)가 있다면, 이들을 새로 쓸 데이터랑 합쳐서 쓰도록 한다.
-        pr_info("zonefs: write_iter with left over\n");
+        // pr_info("zonefs: write_iter with left over\n");
         memcpy(target_block->data, current_direct_block->data, left_len);
 
         if(len + left_len >= HODO_DATA_SIZE){
@@ -554,7 +562,7 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
     }
     else {
         //쓰려고 하는 블록이 깔끔하다면, 새로 쓰고자 하는 내용만 쓴다.
-        pr_info("zonefs: write_iter without left over\n");
+        // pr_info("zonefs: write_iter without left over\n");
         if(len >= HODO_DATA_SIZE){
             //쓰려고 하는 데이터가 데이터 블럭을 넘어선다면 하나의 블럭 크기만 쓴다.
             if(copy_from_iter(target_block->data, HODO_DATA_SIZE, from) != HODO_DATA_SIZE){
@@ -581,7 +589,7 @@ ssize_t write_one_block_by_direct_block(struct kiocb *iocb, struct iov_iter *fro
 }
 
 ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *from, logical_block_number_t *out_logical_number, struct hodo_datablock *current_indirect_block){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     //offset을 통해서, 현재 indirect_block 속에 나열 된 block_pos중 무엇을 사용해야 할지 알아낸다.
     uint64_t block_pos_index_in_current_indirect_block = 0;
@@ -596,7 +604,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
     uint64_t num_of_direct_blocks_in_triple_indirect_block = num_of_block_poses_in_datablock * num_of_block_poses_in_datablock * num_of_block_poses_in_datablock;
 
     if(data_block_index         < num_of_direct_blocks_in_hodo_inode){
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) processing in direct block should not reach here\n");
+        // pr_info("zonefs: (error in hodo_sub_file_write_iter) processing in direct block should not reach here\n");
         return -EIO;
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block){
@@ -612,7 +620,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
         block_pos_index_in_current_indirect_block = block_pos_index_in_triple_indirect_datablock;
     }
     else{
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) write_iter over the triple_indirect_data_block. we cannot do it.\n");
+        // pr_info("zonefs: (error in hodo_sub_file_write_iter) write_iter over the triple_indirect_data_block. we cannot do it.\n");
         return -EFBIG;
     }
 
@@ -623,7 +631,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
     //위에서 알아낸 block_pos가 유효하다면 해당 데이터블록을 저장장치로부터 읽어낸다. 이렇게 읽어낸 블록은 이전 데이터 블록보다 간접 차수가 1 낮은 데이터 블록이다.
     struct hodo_datablock *target_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
     if (target_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_file_write_iter) cannot allocate 4KB heap space for datablock variable\n");
         return -ENOMEM;
     }
 
@@ -661,13 +669,13 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
 
 /*-------------------------------------------------------------lookup용 함수----------------------------------------------------------------------------------*/
 uint64_t find_inode_number(struct hodo_inode *dir_hodo_inode, const char *target_name) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     uint64_t result;
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (buf_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
         return NOTHING_FOUND;
     }
 
@@ -718,7 +726,7 @@ uint64_t find_inode_number_from_direct_block(
     struct hodo_datablock* direct_block,
     const char *target_name
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
         struct hodo_dirent temp_dirent;
@@ -735,13 +743,13 @@ uint64_t find_inode_number_from_indirect_block(
     struct hodo_datablock *indirect_block,
     const char *target_name
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (temp_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
         return NOTHING_FOUND;
     }
 
@@ -777,12 +785,12 @@ int read_all_dirents(
     struct dir_context *ctx, 
     uint64_t *dirent_count
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (buf_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_readdir) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_readdir) cannot allocate 4KB heap space for datablock variable\n");
         return END_READ;
     }
 
@@ -836,7 +844,7 @@ int read_all_dirents_from_direct_block(
     struct dir_context *ctx,
     uint64_t *dirent_count
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
         struct hodo_dirent temp_dirent;
@@ -860,13 +868,13 @@ int read_all_dirents_from_indirect_block(
     struct dir_context *ctx,
     uint64_t *dirent_count
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
      if (temp_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_readdir) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_readdir) cannot allocate 4KB heap space for datablock variable\n");
         return 0;
     }
 
@@ -908,7 +916,7 @@ static bool hodo_dir_emit(struct dir_context *ctx, struct hodo_dirent *temp_dire
 
 /*-------------------------------------------------------------create용 함수-------------------------------------------------------------------------------*/
 int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     // read directory inode
     logical_block_number_t dir_block_logical_number = dir->i_ino;
@@ -919,7 +927,7 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
     struct hodo_datablock* temp_datablock = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     for (int i = 0; i < 10; ++i) {
-        pr_info("%dth data block\n", i);
+        // pr_info("%dth data block\n", i);
         if (dir_inode.direct[i] != 0) {
             logical_block_number_t temp_logical_number = dir_inode.direct[i];
             hodo_read_struct(temp_logical_number, temp_datablock, sizeof(struct hodo_datablock));
@@ -982,12 +990,12 @@ int add_dirent(struct inode* dir, struct hodo_inode* sub_inode) {
 
 /*-------------------------------------------------------------unlink용 함수-------------------------------------------------------------------------------*/
 int remove_dirent(struct hodo_inode *dir_hodo_inode, struct inode *dir, const char *target_name, logical_block_number_t *out_logical_number){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (buf_block == NULL) {
-        pr_info("zonefs: (error in hodo_unlink) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_unlink) cannot allocate 4KB heap space for datablock variable\n");
         return NOTHING_FOUND;
     }
 
@@ -1068,7 +1076,7 @@ int remove_dirent_from_direct_block(
     const char *target_name,
     logical_block_number_t *out_logical_number
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     for (int j = HODO_DATA_START; j < HODO_DATABLOCK_SIZE - sizeof(struct hodo_dirent); j += sizeof(struct hodo_dirent)) {
         struct hodo_dirent temp_dirent;
@@ -1089,13 +1097,13 @@ int remove_dirent_from_indirect_block(
     const char *target_name,
     logical_block_number_t *out_logical_number
 ) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (temp_block == NULL) {
-        pr_info("zonefs: (error in hodo_unlink) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_unlink) cannot allocate 4KB heap space for datablock variable\n");
         return NOTHING_FOUND;
     }
 
@@ -1132,7 +1140,7 @@ int remove_dirent_from_indirect_block(
 
 /*-------------------------------------------------------------rmdir용 함수 선언--------------------------------------------------------------------------------*/
 bool check_directory_empty(struct dentry *dentry){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     
     //디렉토리가 루트 디록테리면 매핑 테이블에서 인덱스를 아이노드 번호가 아니라, 0번을 이용해야 하므로 루트 디렉토리인지를 확인한다.
     uint64_t dir_mapping_index;
@@ -1153,7 +1161,7 @@ bool check_directory_empty(struct dentry *dentry){
     struct hodo_datablock *buf_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (buf_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_readdir) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_readdir) cannot allocate 4KB heap space for datablock variable\n");
         return EMPTY_CHECKED;
     }
 
@@ -1204,7 +1212,7 @@ bool check_directory_empty(struct dentry *dentry){
 }
 
 bool check_directory_empty_from_direct_block(struct hodo_datablock *direct_block){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     const char zero[HODO_DATABLOCK_SIZE - HODO_DATA_START] = {0};
 
@@ -1215,13 +1223,13 @@ bool check_directory_empty_from_direct_block(struct hodo_datablock *direct_block
 }
 
 bool check_directory_empty_from_indirect_block(struct hodo_datablock *indirect_block){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     logical_block_number_t temp_block_logical_number;
     struct hodo_datablock *temp_block = kmalloc(HODO_DATABLOCK_SIZE, GFP_KERNEL);
 
     if (temp_block == NULL) {
-        pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
+        // pr_info("zonefs: (error in hodo_sub_lookup) cannot allocate 4KB heap space for datablock variable\n");
         return EMPTY_CHECKED;
     }
 
@@ -1266,7 +1274,7 @@ int hodo_get_next_logical_number(void) {
             for (int j = 0; j < 32; ++j) {
                 if ((mapping_info.logical_entry_bitmap[i] & (1 << (31 - j))) == 0) {
                     hodo_set_logical_bitmap(i, j);
-                    pr_info("return logical number : %d\n", mapping_info.starting_logical_number + (i * 32 + j));
+                    // pr_info("return logical number : %d\n", mapping_info.starting_logical_number + (i * 32 + j));
                     return mapping_info.starting_logical_number + (i * 32 + j);
                 }
             }
@@ -1290,7 +1298,7 @@ static void hodo_unset_GC_bitmap(struct hodo_block_pos physical_address) {
 }
 
 static void GC_print(void) {
-    pr_info("%x\n", mapping_info.GC_bitmap[1][0]);
+    // pr_info("%x\n", mapping_info.GC_bitmap[1][0]);
 }
 
 int hodo_erase_table_entry(int table_entry_index) {
@@ -1301,7 +1309,7 @@ int hodo_erase_table_entry(int table_entry_index) {
 
 /*-------------------------------------------------------------입출력 함수-------------------------------------------------------------------------------*/
 ssize_t hodo_read_struct(logical_block_number_t logical_block_number, void *out_buf, size_t len) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     
     struct hodo_block_pos block_pos = mapping_info.mapping_table[logical_block_number - mapping_info.starting_logical_number];
 
@@ -1357,7 +1365,7 @@ ssize_t hodo_read_struct(logical_block_number_t logical_block_number, void *out_
 }
 
 ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical_block_number) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     uint32_t zone_id = mapping_info.wp.zone_id;
     uint64_t offset = mapping_info.wp.block_index * HODO_DATABLOCK_SIZE;
@@ -1378,7 +1386,7 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
     mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number] = mapping_info.wp;
 
     if (((char*)buf)[0] == 'D' && ((char*)buf)[1] == 'A' && ((char*)buf)[2] == 'T') {
-        pr_info("logical block number: %d\n", logical_block_number);
+        // pr_info("logical block number: %d\n", *logical_block_number);
         ((struct hodo_datablock*)buf)->logical_block_number = *logical_block_number;
     }
 
@@ -1414,7 +1422,7 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
     kiocb.ki_pos = offset;
     kiocb.ki_flags = IOCB_DIRECT;
 
-    pr_info("path: %s\toffset: %ld\n", path, offset);
+    // pr_info("path: %s\toffset: %ld\n", path, offset);
     //위 두 정보를 가지고 write_iter 실행
     if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
         pr_err("zonefs: read_iter not available on file\n");
@@ -1453,7 +1461,7 @@ ssize_t compact_datablock(struct hodo_datablock *source_block, int remove_start_
 }
 
 ssize_t hodo_read_on_disk_mapping_info(void) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     uint32_t zone_id = 0;
     uint64_t offset = 0;

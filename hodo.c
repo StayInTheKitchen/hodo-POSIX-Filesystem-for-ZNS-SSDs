@@ -43,7 +43,7 @@ struct hodo_mapping_info mapping_info;
 char mount_point_path[16];
 
 void hodo_init(void) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     // 마운트 포인트를 찾는 과정
     // /proc/self/mountinfo 파일을 파싱해서 zonefs가 마운트된 마운트 포인트를 찾는다
@@ -147,7 +147,7 @@ void hodo_init(void) {
 
 /*----------------------------------------------------------파일 오퍼레이션 함수----------------------------------------------------------------------------------------*/
 static int hodo_file_open(struct inode *inode, struct file *filp) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct dentry *dentry = filp->f_path.dentry;
     const char *parent = dentry->d_parent->d_name.name;
@@ -160,13 +160,13 @@ static int hodo_file_open(struct inode *inode, struct file *filp) {
 }
 
 static ssize_t hodo_read_dir(struct file *file, char __user *buf, size_t count, loff_t *pos) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     return zonefs_dir_operations.read(file, buf, count, pos);
 }
 
 static int hodo_file_release(struct inode *inode, struct file *filp) {
-    // ZONEFS_TRACE();
+    // // ZONEFS_TRACE();
 
     struct dentry *dentry = filp->f_path.dentry;
     const char *parent = dentry->d_parent->d_name.name;
@@ -179,7 +179,7 @@ static int hodo_file_release(struct inode *inode, struct file *filp) {
 }
 
 static int hodo_file_fsync(struct file *filp, loff_t start, loff_t end, int datasync) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     int file_ino = filp->f_inode->i_ino;
 
@@ -191,29 +191,29 @@ static int hodo_file_fsync(struct file *filp, loff_t start, loff_t end, int data
 }
 
 static int hodo_file_mmap(struct file *filp, struct vm_area_struct *vma) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_operations.mmap(filp, vma);
 }
 
 static loff_t hodo_file_llseek(struct file *filp, loff_t offset, int whence) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     return zonefs_file_operations.llseek(filp, offset, whence);
 }
 
 static loff_t hodo_dir_llseek(struct file *filp, loff_t offset, int whence) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     return zonefs_dir_operations.llseek(filp, offset, whence);
 }
 
 static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
-	ZONEFS_TRACE();
+	// ZONEFS_TRACE();
 
     int file_ino = iocb->ki_filp->f_inode->i_ino;
     // /cnv, /seq인 경우
     if (file_ino < mapping_info.starting_logical_number) {
-        pr_info("seq ki_pos: %d\n", iocb->ki_pos);
+        // pr_info("seq ki_pos: %d\n", iocb->ki_pos);
 	    return zonefs_file_operations.read_iter(iocb, to);
     }
 
@@ -222,8 +222,8 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 
     hodo_read_struct(file_inode_logical_number, &file_inode, sizeof(struct hodo_inode));
 
-    pr_info("ki_pos: %d\n", iocb->ki_pos);
-    pr_info("iov_iter count: %d\n", iov_iter_count(to));
+    // pr_info("ki_pos: %d\n", iocb->ki_pos);
+    // pr_info("iov_iter count: %d\n", iov_iter_count(to));
 
     // 읽을 길이 min(파일 끝 - 요청 시작 길이, 요청 길이)
     int read_len = (file_inode.file_len - iocb->ki_pos); 
@@ -280,40 +280,40 @@ static ssize_t hodo_file_read_iter(struct kiocb *iocb, struct iov_iter *to) {
 }
 
 static ssize_t hodo_file_write_iter(struct kiocb *iocb, struct iov_iter *from) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     uint64_t target_ino = iocb->ki_filp->f_inode->i_ino;
 
     //CNV, SEQ 디렉토리 아래에 속한 파일은 기존 zonefs write iter를 호출
     if (target_ino < mapping_info.starting_logical_number) {
-        pr_info("zonefs: using original write_iter for target (ino :'%d')\n", target_ino);
+        // pr_info("zonefs: using original write_iter for target (ino :'%d')\n", target_ino);
         return zonefs_file_operations.write_iter(iocb, from);
     }
 
     //그 외는 우리가 정의한 hodo sub write iter를 호출
-    pr_info("zonefs: using custom write_iter for target (ino :'%d')\n", target_ino);
+    // pr_info("zonefs: using custom write_iter for target (ino :'%d')\n", target_ino);
     return hodo_sub_file_write_iter(iocb, from);
 }
 
 static ssize_t hodo_file_splice_read(struct file *in, loff_t *ppos,
                                               struct pipe_inode_info *pipe, size_t len, unsigned int flags) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_operations.splice_read(in, ppos, pipe, len, flags);
 }
 
 static ssize_t hodo_file_splice_write(struct pipe_inode_info *pipe, struct file *out,
                                              loff_t *ppos, size_t len, unsigned int flags) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_operations.splice_write(pipe, out, ppos, len, flags);
 }
 
 static int hodo_file_iocb_bio_iopoll(struct kiocb *iocb, struct io_comp_batch *iob, unsigned int flags) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_operations.iopoll(iocb, iob, flags);
 }
 
 static int hodo_readdir(struct file *file, struct dir_context *ctx) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct inode *inode = file_inode(file);
     struct dentry *dentry = file->f_path.dentry;
@@ -321,11 +321,11 @@ static int hodo_readdir(struct file *file, struct dir_context *ctx) {
 
     //보다 쉬운 디버깅을 위해, 'cnv', 'seq' 디렉토리에서 친 ls 명령어의 경우에는 기존의 zonefs readdir을 호출하도록 한다.
     if (!strcmp(name, "seq") || !strcmp(name, "cnv")) {
-        pr_info("zonefs: readdir on 'seq' or 'cnv'\n");
+        // pr_info("zonefs: readdir on 'seq' or 'cnv'\n");
         return zonefs_dir_operations.iterate_shared(file, ctx);
     }
     else {
-        pr_info("zonefs: readdir on user directory\n");
+        // pr_info("zonefs: readdir on user directory\n");
         return hodo_sub_readdir(file, ctx);
     }
 }
@@ -351,14 +351,14 @@ const struct file_operations hodo_dir_operations = {
 
 /*-------------------------------------------------------------아이노드 오퍼레이션 함수-------------------------------------------------------------------------------*/
 static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     const char *name = dentry->d_name.name;
     const char *parent = dentry->d_parent->d_name.name;
 
     if (!strcmp(name, "seq") || !strcmp(name, "cnv") ||
         !strcmp(parent, "seq") || !strcmp(parent, "cnv")) {
-        pr_info("zonefs: using original setattr for '%s' (parent: %s)\n", name, parent);
+        // pr_info("zonefs: using original setattr for '%s' (parent: %s)\n", name, parent);
         return zonefs_dir_inode_operations.setattr(idmap, dentry, iattr);
     }
 
@@ -366,7 +366,7 @@ static int hodo_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct i
 }
 
 static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     //seq, cnv 또는 그 하위 디렉토리는 기존 zonefs lookup 사용
     const char* name = dentry->d_name.name;
@@ -374,17 +374,17 @@ static struct dentry *hodo_lookup(struct inode *dir, struct dentry *dentry, unsi
 
     if (!strcmp(name, "seq") || !strcmp(name, "cnv") ||
         !strcmp(parent, "seq") || !strcmp(parent, "cnv")) {
-        pr_info("zonefs: using original lookup for '%s' (parent: %s)\n", name, parent);
+        // pr_info("zonefs: using original lookup for '%s' (parent: %s)\n", name, parent);
         return zonefs_dir_inode_operations.lookup(dir, dentry, flags);
     }
 
     //그 외는 우리가 정의한 hodo sub lookup 사용
-    pr_info("zonefs: using custom lookup for '%s' (parent: %s)\n", name, parent);
+    // pr_info("zonefs: using custom lookup for '%s' (parent: %s)\n", name, parent);
     return hodo_sub_lookup(dir, dentry, flags);
 }
 
 static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct inode *inode;
     struct timespec64 now;
@@ -446,7 +446,7 @@ static int hodo_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry
 }
 
 static int hodo_unlink(struct inode *dir,struct dentry *dentry) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct timespec64 now;
     now = current_time(dir);
@@ -457,10 +457,10 @@ static int hodo_unlink(struct inode *dir,struct dentry *dentry) {
     //'seq', 'cnv' 디렉토리 속 파일은 삭제되어선 안된다
     const char *target_name = dentry->d_name.name;
     const char *parent_name = dentry->d_parent->d_name.name;
-    pr_info("zonefs: unlink parameters, parent name: %s, target name: %s\n", parent_name, target_name); 
+    // pr_info("zonefs: unlink parameters, parent name: %s, target name: %s\n", parent_name, target_name); 
 
     if (!strcmp(parent_name, "seq") || !strcmp(parent_name, "cnv")) {
-        pr_info("zonefs: we do not unlink file under the 'seq' or 'cnv'\n");
+        // pr_info("zonefs: we do not unlink file under the 'seq' or 'cnv'\n");
         return 0;
     }
 
@@ -468,12 +468,12 @@ static int hodo_unlink(struct inode *dir,struct dentry *dentry) {
     uint64_t parent_mapping_index;
     uint64_t target_mapping_index;
     if (dir == dentry->d_sb->s_root->d_inode) {
-        pr_info("zonefs: unlink in root directory\n"); 
+        // pr_info("zonefs: unlink in root directory\n"); 
         parent_mapping_index = mapping_info.starting_logical_number;
         target_mapping_index = dentry->d_inode->i_ino;
     }
     else {
-        pr_info("zonefs: unlink in non-root directory\n"); 
+        // pr_info("zonefs: unlink in non-root directory\n"); 
         parent_mapping_index = dir->i_ino;
         target_mapping_index = dentry->d_inode->i_ino;
     }
@@ -511,7 +511,7 @@ static int hodo_unlink(struct inode *dir,struct dentry *dentry) {
 }
 
 static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct inode *inode;
     struct timespec64 now;
@@ -569,18 +569,20 @@ static int hodo_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry 
 
     d_add(dentry, inode);
 
+    GC();
+
     return 0;
 }
 
 static int hodo_rmdir(struct inode *dir, struct dentry *dentry){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     
     //seq, cnv 디렉토리는 삭제되면 안된다.
     const char *target_name = dentry->d_name.name;
     const char *parent_name = dentry->d_parent->d_name.name;
 
     if (!strcmp(target_name, "seq") || !strcmp(target_name, "cnv")) {
-        pr_info("zonefs: we do not rmdir 'seq' or 'cnv'\n");
+        // pr_info("zonefs: we do not rmdir 'seq' or 'cnv'\n");
         return 0;
     }
 
@@ -608,55 +610,55 @@ const struct inode_operations hodo_dir_inode_operations = {
 
 /*-------------------------------------------------------------주소공간 오퍼레이션 함수-------------------------------------------------------------------------------*/
 static int hodo_read_folio(struct file *file, struct folio *folio) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.read_folio(file, folio);
 }
 
 static void hodo_readahead(struct readahead_control *rac) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     zonefs_file_aops.readahead(rac);
 }
 
 static int hodo_writepages(struct address_space *mapping,
                                     struct writeback_control *wbc) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.writepages(mapping, wbc);
 }
 
 static bool hodo_dirty_folio(struct address_space *mapping, struct folio *folio) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.dirty_folio(mapping, folio);
 }
 
 static bool hodo_release_folio(struct folio *folio, gfp_t gfp) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return  zonefs_file_aops.release_folio(folio, gfp);
 }
 
 static void hodo_invalidate_folio(struct folio *folio, size_t offset, size_t length) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     zonefs_file_aops.invalidate_folio(folio, offset, length);
 }
 
 static int hodo_migrate_folio(struct address_space *mapping,
                                         struct folio *dst, struct folio *src, enum migrate_mode mode) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.migrate_folio(mapping, dst, src, mode);
 }
 
 static bool hodo_is_partially_uptodate(struct folio *folio, size_t from, size_t count) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.is_partially_uptodate(folio, from, count);
 }
 
 static int hodo_error_remove_folio(struct address_space *mapping, struct folio *folio) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.error_remove_folio(mapping, folio);
 }
 
 static int hodo_swap_activate(struct swap_info_struct *sis, struct file *file,
                                        sector_t *span) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     return zonefs_file_aops.swap_activate(sis, file, span);
 }
 
@@ -675,7 +677,7 @@ const struct address_space_operations hodo_file_aops = {
 
 /*-------------------------------------------------------------오퍼레이션 서브 함수-------------------------------------------------------------------------------*/
 static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, unsigned int flags) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     const char *name = dentry->d_name.name;
     const char *parent = dentry->d_parent->d_name.name;
@@ -708,7 +710,7 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
         return dentry;
     }
 
-    pr_info("zonefs: target hodo inode number: %d\n", target_hodo_inode_number);
+    // pr_info("zonefs: target hodo inode number: %d\n", target_hodo_inode_number);
     logical_block_number_t target_hodo_inode_logical_number = target_hodo_inode_number;
     struct hodo_inode target_hodo_inode = { 0, };
     hodo_read_struct(target_hodo_inode_logical_number, &target_hodo_inode, sizeof(struct hodo_inode));
@@ -736,7 +738,7 @@ static struct dentry *hodo_sub_lookup(struct inode* dir, struct dentry* dentry, 
 }
 
 static int hodo_sub_readdir(struct file *file, struct dir_context *ctx) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
     struct inode *inode = file_inode(file);
     struct dentry *dentry = file->f_path.dentry;
@@ -774,11 +776,11 @@ static int hodo_sub_readdir(struct file *file, struct dir_context *ctx) {
     uint64_t dir_hodo_mapping_index = 0;
 
     if (inode == d_inode(inode->i_sb->s_root)){
-        pr_info("zonefs: readdir on root mount point\n");
+        // pr_info("zonefs: readdir on root mount point\n");
         dir_hodo_mapping_index = mapping_info.starting_logical_number;
     }
     else {
-        pr_info("zonefs: readdir on non-root user dir\n");
+        // pr_info("zonefs: readdir on non-root user dir\n");
         dir_hodo_mapping_index = inode->i_ino; 
     }
 
@@ -792,7 +794,7 @@ static int hodo_sub_readdir(struct file *file, struct dir_context *ctx) {
 }
 
 static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, struct iattr *iattr) {
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
 
 	struct inode *inode = d_inode(dentry);
 	int ret;
@@ -800,14 +802,14 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 	ret = setattr_prepare(&nop_mnt_idmap, dentry, iattr);
     if (ret) {
     	if (d_inode(dentry) == dentry->d_sb->s_root->d_inode) {
-	    	pr_info("zonefs: ignoring setattr_prepare failure on root\n");
+	    	// pr_info("zonefs: ignoring setattr_prepare failure on root\n");
 	    } else {
 		    return ret;
 	    }
     }
 
 	if (iattr->ia_valid & ATTR_SIZE) {
-        pr_info("inode: %d\tia_size:%d\n", inode->i_ino, iattr->ia_size);
+        // pr_info("inode: %d\tia_size:%d\n", inode->i_ino, iattr->ia_size);
 	    truncate_setsize(inode, iattr->ia_size);
 		// ret = zonefs_file_truncate(inode, iattr->ia_size);
 		// if (ret)
@@ -819,7 +821,7 @@ static int hodo_sub_setattr(struct mnt_idmap *idmap, struct dentry *dentry, stru
 }
 
 static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *from){
-    ZONEFS_TRACE();
+    // ZONEFS_TRACE();
     
     uint64_t len = iov_iter_count(from);
     ssize_t total_written_size = 0;
@@ -834,9 +836,9 @@ static ssize_t hodo_sub_file_write_iter(struct kiocb *iocb, struct iov_iter *fro
             total_written_size += temp_written_size;
     }
 
-    if (GC_timing()) {
-        GC();
-    }
+    // if (GC_timing()) {
+    //     GC();
+    // }
     
     return total_written_size;
 }
