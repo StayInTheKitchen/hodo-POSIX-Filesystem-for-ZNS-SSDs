@@ -187,6 +187,8 @@ int GC_timing(void) {
 
 int GC(void) {
     pr_err("GC : in the GC....\n");
+    struct hodo_block_pos prev_wp = mapping_info.wp;
+
     mapping_info.wp.zone_id = 1;
     mapping_info.wp.block_index = 0;
 
@@ -214,19 +216,19 @@ int GC(void) {
             struct hodo_block_pos swap_out_ptr = {hodo_nr_zones-2, 0};
 
             // wp zone을 reset
-            // struct path path;
-            // struct inode *inode;
-            // char path_buf[32];
+            struct path path;
+            struct inode *inode;
+            char path_buf[32];
 
-            // scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.wp.zone_id);
+            scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.wp.zone_id);
 
-            // if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
-            //     inode = d_inode(path.dentry);
-            //     zonefs_file_truncate(inode, 0);
-            //     path_put(&path);
-            // } else {
-            //     pr_err("Failed to resolve path: %s\n", path_buf);
-            // }
+            if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+                inode = d_inode(path.dentry);
+                zonefs_file_truncate(inode, 0);
+                path_put(&path);
+            } else {
+                pr_err("Failed to resolve path: %s\n", path_buf);
+            }
 
             while (swap_out_ptr.block_index < BLOCKS_PER_ZONE) {
                 hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
@@ -244,26 +246,21 @@ int GC(void) {
             }
 
             // swap_wp zone을 reset
-            // scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
+            scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
 
-            // if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
-            //     inode = d_inode(path.dentry);
-            //     zonefs_file_truncate(inode, 0);
-            //     path_put(&path);
-            // } else {
-            //     pr_err("Failed to resolve path: %s\n", path_buf);
-            // }
+            if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+                inode = d_inode(path.dentry);
+                zonefs_file_truncate(inode, 0);
+                path_put(&path);
+            } else {
+                pr_err("Failed to resolve path: %s\n", path_buf);
+            }
 
             mapping_info.swap_wp.block_index = 0;
         }
 
         valid_block_pos = hodo_get_next_GC_valid();
     }
-
-    pr_info("zone_1_valid_count is : %d / zone_2_valid_count is : %d\n", zone_1_valid_count, zone_2_valid_count);
-    pr_info("zone_1_valid_set_count is : %d / zone_2_valid_set_count is : %d\n", zone_1_valid_set_count, zone_2_valid_set_count);
-    pr_info("zone_1_valid_unset_count is : %d / zone_2_valid_unset_count is : %d\n", zone_1_valid_unset_count, zone_2_valid_unset_count);
-
 
     // 꼬투리 zone
     if (mapping_info.swap_wp.block_index != 0) {
@@ -301,16 +298,39 @@ int GC(void) {
         }
 
         // swap_wp zone을 reset
-        // scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
+        scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
 
-        // if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
-        //     inode = d_inode(path.dentry);
-        //     zonefs_file_truncate(inode, 0);
-        //     path_put(&path);
-        // } else {
-        //     pr_err("Failed to resolve path: %s\n", path_buf);
-        // }
+        if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+            inode = d_inode(path.dentry);
+            zonefs_file_truncate(inode, 0);
+            path_put(&path);
+        } else {
+            pr_err("Failed to resolve path: %s\n", path_buf);
+        }
     }
+
+    int start = mapping_info.wp.zone_id + 1; 
+    if (mapping_info.wp.block_index == 0) {
+        start--;
+    }
+
+    for (int i = start; i <= prev_wp.zone_id; ++i) {
+        // wp zone을 reset
+        struct path path;
+        struct inode *inode;
+        char path_buf[32];
+
+        scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, i);
+
+        if (kern_path(path_buf, LOOKUP_FOLLOW, &path) == 0) {
+            inode = d_inode(path.dentry);
+            zonefs_file_truncate(inode, 0);
+            path_put(&path);
+        } else {
+            pr_err("Failed to resolve path: %s\n", path_buf);
+        }
+    }
+
 
     kfree(temp_datablock);
 
