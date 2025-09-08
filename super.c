@@ -654,7 +654,7 @@ static long zonefs_fname_to_fno(const struct qstr *fname)
 static struct inode *zonefs_get_file_inode(struct inode *dir,
                                            struct dentry *dentry)
 {
-        ZONEFS_TRACE();
+        //ZONEFS_TRACE();
         struct zonefs_zone_group *zgroup = dir->i_private;
         struct super_block *sb = dir->i_sb;
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
@@ -706,7 +706,7 @@ static struct inode *zonefs_get_file_inode(struct inode *dir,
 static struct inode *zonefs_get_zgroup_inode(struct super_block *sb,
                                              enum zonefs_ztype ztype)
 {
-        ZONEFS_TRACE();
+        //ZONEFS_TRACE();
         struct inode *root = d_inode(sb->s_root);
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         struct inode *inode;
@@ -738,7 +738,7 @@ static struct inode *zonefs_get_zgroup_inode(struct super_block *sb,
 static struct inode *zonefs_get_dir_inode(struct inode *dir,
                                           struct dentry *dentry)
 {
-        ZONEFS_TRACE();
+        //ZONEFS_TRACE();
         struct super_block *sb = dir->i_sb;
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         const char *name = dentry->d_name.name;
@@ -765,7 +765,7 @@ static struct inode *zonefs_get_dir_inode(struct inode *dir,
 static struct dentry *zonefs_lookup(struct inode *dir, struct dentry *dentry,
                                     unsigned int flags)
 {
-        ZONEFS_TRACE();
+        //ZONEFS_TRACE();
         struct inode *inode;
 
         if (dentry->d_name.len > ZONEFS_NAME_MAX)
@@ -1232,7 +1232,7 @@ static const struct super_operations zonefs_sops = {
 
 static int zonefs_get_zgroup_inodes(struct super_block *sb)
 {
-        ZONEFS_TRACE();
+        //ZONEFS_TRACE();
         struct zonefs_sb_info *sbi = ZONEFS_SB(sb);
         struct inode *dir_inode;
         enum zonefs_ztype ztype;
@@ -1274,7 +1274,7 @@ static void zonefs_release_zgroup_inodes(struct super_block *sb)
  */
 static int zonefs_fill_super(struct super_block *sb, void *data, int silent)
 {
-        ZONEFS_TRACE();
+        //ZONEFS_TRACE();
         struct zonefs_sb_info *sbi;
         struct inode *inode;
         enum zonefs_ztype ztype;
