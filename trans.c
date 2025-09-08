@@ -40,7 +40,7 @@ struct hodo_block_pos hodo_get_next_GC_valid(void) {
     struct hodo_block_pos start_pos = mapping_info.wp;
     struct hodo_block_pos ret = {0,0}; 
 
-    for (int i = 1; i < NUMBER_ZONES - 2; ++i) {
+    for (int i = start_pos.zone_id; i < NUMBER_ZONES - 2; ++i) {
         for (int j = 0; j < (BLOCKS_PER_ZONE / 32); ++j) {
             if (mapping_info.GC_bitmap[i][j] != 0x00000000) {
                 for (int k = 0; k < 32; ++k) {
@@ -212,7 +212,7 @@ int GC(void) {
 
         hodo_GC_write_struct(temp_datablock, HODO_DATABLOCK_SIZE, &logical_block_number);
 
-        if (mapping_info.swap_wp.block_index >= BLOCKS_PER_ZONE) {
+        if (mapping_info.swap_wp.block_index >= BLOCKS_PER_ZONE-1) {
             struct hodo_block_pos swap_out_ptr = {hodo_nr_zones-2, 0};
 
             // wp zone을 reset
@@ -230,7 +230,8 @@ int GC(void) {
                 pr_err("Failed to resolve path: %s\n", path_buf);
             }
 
-            while (swap_out_ptr.block_index < BLOCKS_PER_ZONE) {
+            while (1) {
+                pr_info("swapout_block index, BLOCK_PER_ZONE (%d,%d)\n", swap_out_ptr.block_index, BLOCKS_PER_ZONE);
                 hodo_GC_read_struct(swap_out_ptr, temp_datablock, HODO_DATABLOCK_SIZE);
 
                 logical_block_number_t swap_logical_block_number;
@@ -242,8 +243,14 @@ int GC(void) {
                 }
 
                 hodo_write_struct(temp_datablock, HODO_DATABLOCK_SIZE, &swap_logical_block_number);
+                pr_info("mapping info wp: (%d, %d)\n", mapping_info.wp.zone_id, mapping_info.wp.block_index);
+
+                if (swap_out_ptr.block_index == BLOCKS_PER_ZONE-1) {
+                    break;
+                }
                 swap_out_ptr.block_index++;
             }
+            pr_info("not infiinite\n");
 
             // swap_wp zone을 reset
             scnprintf(path_buf, sizeof(path_buf), "%s/seq/%d", mount_point_path, mapping_info.swap_wp.zone_id);
@@ -648,7 +655,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block){
         uint64_t block_pos_index_in_single_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode);
         block_pos_index_in_current_indirect_block = block_pos_index_in_single_indirect_datablock;
-        pr_info("DAT1 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
+        // pr_info("DAT1 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block){
         uint64_t block_pos_index_in_double_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block) / num_of_block_poses_in_datablock;
@@ -673,7 +680,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
             return -EIO;
         }
 
-        pr_info("DAT2 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
+        // pr_info("DAT2 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
     }
     else if(data_block_index    < num_of_direct_blocks_in_hodo_inode + num_of_direct_blocks_in_single_indirect_block + num_of_direct_blocks_in_double_indirect_block + num_of_direct_blocks_in_triple_indirect_block){
         uint64_t block_pos_index_in_triple_indirect_datablock = (data_block_index - num_of_direct_blocks_in_hodo_inode - num_of_direct_blocks_in_single_indirect_block - num_of_direct_blocks_in_double_indirect_block) / num_of_block_poses_in_datablock / num_of_block_poses_in_datablock;
@@ -741,7 +748,7 @@ ssize_t write_one_block_by_indirect_block(struct kiocb *iocb, struct iov_iter *f
     ssize_t written_size = 0;
 
     if(is_directblock(target_block)){
-        pr_info("DAT1->DAT0 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
+        // pr_info("DAT1->DAT0 : calculated offset in indirect_block : %d\n", block_pos_index_in_current_indirect_block);
         written_size = write_one_block_by_direct_block(iocb, from, &written_logical_number, target_block);
     }
     else
@@ -1533,6 +1540,7 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
     filp_close(zone_file, NULL);
 
     if (offset + len == hodo_zone_size) {
+        pr_info("hodo_write_struct wp is moved!\n");
         mapping_info.wp.zone_id = zone_id + 1; 
         mapping_info.wp.block_index = 0;
     }
