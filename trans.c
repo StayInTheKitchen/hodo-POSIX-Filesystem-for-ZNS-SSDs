@@ -11,6 +11,7 @@
 
 #include <linux/blkdev.h>
 #include <linux/namei.h>
+
 #include "zonefs.h"
 #include "hodo.h"
 #include "trans.h"
@@ -27,160 +28,17 @@ int zone_2_valid_unset_count = 0;
 
 /*-------------------------------------------------------------static 함수 선언-------------------------------------------------------------------------------*/
 static bool hodo_dir_emit(struct dir_context *ctx, struct hodo_dirent *temp_dirent);
+
 static void hodo_set_logical_bitmap(int i, int j);
 static void hodo_unset_logical_bitmap(int i, int j);
 
 static void hodo_set_GC_bitmap(struct hodo_block_pos);
 static void hodo_unset_GC_bitmap(struct hodo_block_pos);
+static struct hodo_block_pos hodo_get_next_GC_valid(void);
 
 static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_t *logical_block_number);
 static ssize_t hodo_GC_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t len);
 /*----------------------------------------------------------------GC용 함수--------------------------------------------------------------------------------*/
-struct hodo_block_pos hodo_get_next_GC_valid(void) {
-    struct hodo_block_pos start_pos = mapping_info.wp;
-    struct hodo_block_pos ret = {0,0}; 
-
-    for (int i = start_pos.zone_id; i < NUMBER_ZONES - 2; ++i) {
-        for (int j = 0; j < (BLOCKS_PER_ZONE / 32); ++j) {
-            if (mapping_info.GC_bitmap[i][j] != 0x00000000) {
-                for (int k = 0; k < 32; ++k) {
-                    if ((mapping_info.GC_bitmap[i][j] & (1 << (31 - k))) != 0) {
-                        ret.zone_id = i;
-                        ret.block_index = (j * 32) + k;
-                        // pr_info("GC bitmap return value: (%d,%d)\n", ret.zone_id, ret.block_index);
-                        if(ret.zone_id == 1) zone_1_valid_count++;
-                        else if(ret.zone_id == 2) zone_2_valid_count++;
-                        //pr_info("count is : %d / set zone number : %d\n", valid_cnt++, ret.zone_id);
-                        return ret;
-                    }
-                }
-            }
-        }
-    }
-
-    return ret;
-}
-
-static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_t *logical_block_number) {
-    // // ZONEFS_TRACE();
-
-    uint32_t zone_id = mapping_info.swap_wp.zone_id;
-    uint64_t offset = mapping_info.swap_wp.block_index * HODO_DATABLOCK_SIZE;
-
-    if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE)
-        return -EINVAL;
-
-    hodo_set_GC_bitmap(mapping_info.swap_wp);
-    struct hodo_block_pos invalid_pos = mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number];
-    hodo_unset_GC_bitmap(invalid_pos);
-
-    mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number] = mapping_info.swap_wp;
-
-    //seq 파일을 열기 위해 경로 이름(path) 만들기
-    const char path_up[16];
-    char path_down[6] = {0, };
-
-    memcpy(path_up, mount_point_path, sizeof(path_up));
-    strcat(path_up, "/seq/");
-    snprintf(path_down, sizeof(path_down), "%d", zone_id);
-    const char *path = strncat(path_up, path_down, 6);
-
-    struct file *zone_file;
-    struct kiocb kiocb;
-    struct iov_iter iter;
-    struct kvec kvec;
-    ssize_t ret;
-
-    //파일 열기
-    zone_file = filp_open(path, O_WRONLY | O_LARGEFILE, 0);
-    if (IS_ERR(zone_file)) {
-        pr_err("zonefs: filp_open(%s) failed\n", path);
-        return PTR_ERR(zone_file);
-    }
-
-    //iov_iter 구성
-    kvec.iov_base = (void*)buf;
-    kvec.iov_len = len;
-    iov_iter_kvec(&iter, ITER_SOURCE, &kvec, 1, len);
-
-    //kiocb 구성
-    init_sync_kiocb(&kiocb, zone_file);
-    kiocb.ki_pos = offset;
-    kiocb.ki_flags = IOCB_DIRECT;
-
-    // pr_info("path: %s\toffset: %ld\n", path, offset);
-    //위 두 정보를 가지고 write_iter 실행
-    if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
-        pr_err("zonefs: read_iter not available on file\n");
-        filp_close(zone_file, NULL);
-        ret = -EINVAL;
-    }
-
-    ret = zone_file->f_op->write_iter(&kiocb, &iter);
-    filp_close(zone_file, NULL);
-
-    if (offset + len != hodo_zone_size) {
-        mapping_info.swap_wp.zone_id = zone_id; 
-        mapping_info.swap_wp.block_index += 1;
-    }
-
-    return ret;
-}
-
-static ssize_t hodo_GC_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t len) {
-    // ZONEFS_TRACE();
-
-    uint32_t zone_id = block_pos.zone_id;
-    uint64_t offset = block_pos.block_index * HODO_DATABLOCK_SIZE;
-
-    if (!out_buf || len == 0 || len > HODO_DATABLOCK_SIZE)
-        return -EINVAL;
-
-    //seq 파일을 열기 위해 경로 이름(path) 만들기
-    const char path_up[16];
-    char path_down[6] = {0, };
-
-    memcpy(path_up, mount_point_path, sizeof(path_up));
-    strcat(path_up, "/seq/");
-    snprintf(path_down, sizeof(path_down), "%d", zone_id);
-    const char *path = strncat(path_up, path_down, 6);
-
-    struct file *zone_file;
-    struct kiocb kiocb;
-    struct iov_iter iter;
-    struct kvec kvec;
-    ssize_t ret;
-
-    //파일 열기
-    zone_file = filp_open(path, O_RDONLY | O_LARGEFILE, 0);
-    if (IS_ERR(zone_file)) {
-        pr_err("zonefs: filp_open(%s) failed\n", path);
-        return PTR_ERR(zone_file);
-    }
-
-    //iov_iter 구성(읽을 버퍼들 여러개와 읽기 연산 등을 묶은 구조체)
-    kvec.iov_base = out_buf;
-    kvec.iov_len = len;
-    iov_iter_kvec(&iter, ITER_DEST, &kvec, 1, len);
-
-    //kiocb 구성(읽기 요청의 컨텍스트 정보)
-    init_sync_kiocb(&kiocb, zone_file);
-    kiocb.ki_pos = offset;
-    kiocb.ki_flags = IOCB_DIRECT;
-
-    //위 두 정보를 가지고 read_iter 실행
-    if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
-        pr_err("zonefs: read_iter not available on file\n");
-        ret = -EINVAL;
-        return ret;
-    }
-
-    ret = zone_file->f_op->read_iter(&kiocb, &iter);
-
-    filp_close(zone_file, NULL);
-    return ret;
-}
-
 int GC_timing(void) {
     return 1;
 }
@@ -1304,7 +1162,7 @@ bool check_directory_empty(struct dentry *dentry){
         }
     }
 
-    //모두 잘 다 뒤져보았으므로 더 읽을 필요가 없음을 알려주기 위해 END_READ를 반환하고 끝낸다
+    //모두 잘 다 뒤져보았으므로 더 읽을 필요가 없음을 알려주기 위해 EMPTY_CHECKED를 반환하고 끝낸다
     kfree(buf_block);
     return EMPTY_CHECKED;
 }
@@ -1403,8 +1261,29 @@ static void hodo_unset_GC_bitmap(struct hodo_block_pos physical_address) {
     mapping_info.GC_bitmap[zone_id][block_index / 32] &= ~(1 << (31 - (block_index % 32)));
 }
 
-static void GC_print(void) {
-    // pr_info("%x\n", mapping_info.GC_bitmap[1][0]);
+static struct hodo_block_pos hodo_get_next_GC_valid(void) {
+    struct hodo_block_pos start_pos = mapping_info.wp;
+    struct hodo_block_pos ret = {0,0}; 
+
+    for (int i = start_pos.zone_id; i < NUMBER_ZONES - 2; ++i) {
+        for (int j = 0; j < (BLOCKS_PER_ZONE / 32); ++j) {
+            if (mapping_info.GC_bitmap[i][j] != 0x00000000) {
+                for (int k = 0; k < 32; ++k) {
+                    if ((mapping_info.GC_bitmap[i][j] & (1 << (31 - k))) != 0) {
+                        ret.zone_id = i;
+                        ret.block_index = (j * 32) + k;
+                        // pr_info("GC bitmap return value: (%d,%d)\n", ret.zone_id, ret.block_index);
+                        if(ret.zone_id == 1) zone_1_valid_count++;
+                        else if(ret.zone_id == 2) zone_2_valid_count++;
+                        //pr_info("count is : %d / set zone number : %d\n", valid_cnt++, ret.zone_id);
+                        return ret;
+                    }
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 int hodo_erase_table_entry(int table_entry_index) {
@@ -1487,7 +1366,6 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
         struct hodo_block_pos invalid_pos = mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number];
         hodo_unset_GC_bitmap(invalid_pos);
     }
-    GC_print();
 
     mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number] = mapping_info.wp;
 
@@ -1549,6 +1427,126 @@ ssize_t hodo_write_struct(void *buf, size_t len, logical_block_number_t *logical
         mapping_info.wp.block_index += 1;
     }
 
+    return ret;
+}
+
+static ssize_t hodo_GC_write_struct(void *buf, size_t len, logical_block_number_t *logical_block_number) {
+    // // ZONEFS_TRACE();
+
+    uint32_t zone_id = mapping_info.swap_wp.zone_id;
+    uint64_t offset = mapping_info.swap_wp.block_index * HODO_DATABLOCK_SIZE;
+
+    if (!buf || len == 0 || len > HODO_DATABLOCK_SIZE)
+        return -EINVAL;
+
+    hodo_set_GC_bitmap(mapping_info.swap_wp);
+    struct hodo_block_pos invalid_pos = mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number];
+    hodo_unset_GC_bitmap(invalid_pos);
+
+    mapping_info.mapping_table[*logical_block_number - mapping_info.starting_logical_number] = mapping_info.swap_wp;
+
+    //seq 파일을 열기 위해 경로 이름(path) 만들기
+    const char path_up[16];
+    char path_down[6] = {0, };
+
+    memcpy(path_up, mount_point_path, sizeof(path_up));
+    strcat(path_up, "/seq/");
+    snprintf(path_down, sizeof(path_down), "%d", zone_id);
+    const char *path = strncat(path_up, path_down, 6);
+
+    struct file *zone_file;
+    struct kiocb kiocb;
+    struct iov_iter iter;
+    struct kvec kvec;
+    ssize_t ret;
+
+    //파일 열기
+    zone_file = filp_open(path, O_WRONLY | O_LARGEFILE, 0);
+    if (IS_ERR(zone_file)) {
+        pr_err("zonefs: filp_open(%s) failed\n", path);
+        return PTR_ERR(zone_file);
+    }
+
+    //iov_iter 구성
+    kvec.iov_base = (void*)buf;
+    kvec.iov_len = len;
+    iov_iter_kvec(&iter, ITER_SOURCE, &kvec, 1, len);
+
+    //kiocb 구성
+    init_sync_kiocb(&kiocb, zone_file);
+    kiocb.ki_pos = offset;
+    kiocb.ki_flags = IOCB_DIRECT;
+
+    // pr_info("path: %s\toffset: %ld\n", path, offset);
+    //위 두 정보를 가지고 write_iter 실행
+    if (!(zone_file->f_op) || !(zone_file->f_op->write_iter)) {
+        pr_err("zonefs: read_iter not available on file\n");
+        filp_close(zone_file, NULL);
+        ret = -EINVAL;
+    }
+
+    ret = zone_file->f_op->write_iter(&kiocb, &iter);
+    filp_close(zone_file, NULL);
+
+    if (offset + len != hodo_zone_size) {
+        mapping_info.swap_wp.zone_id = zone_id; 
+        mapping_info.swap_wp.block_index += 1;
+    }
+
+    return ret;
+}
+
+static ssize_t hodo_GC_read_struct(struct hodo_block_pos block_pos, void *out_buf, size_t len) {
+    // ZONEFS_TRACE();
+
+    uint32_t zone_id = block_pos.zone_id;
+    uint64_t offset = block_pos.block_index * HODO_DATABLOCK_SIZE;
+
+    if (!out_buf || len == 0 || len > HODO_DATABLOCK_SIZE)
+        return -EINVAL;
+
+    //seq 파일을 열기 위해 경로 이름(path) 만들기
+    const char path_up[16];
+    char path_down[6] = {0, };
+
+    memcpy(path_up, mount_point_path, sizeof(path_up));
+    strcat(path_up, "/seq/");
+    snprintf(path_down, sizeof(path_down), "%d", zone_id);
+    const char *path = strncat(path_up, path_down, 6);
+
+    struct file *zone_file;
+    struct kiocb kiocb;
+    struct iov_iter iter;
+    struct kvec kvec;
+    ssize_t ret;
+
+    //파일 열기
+    zone_file = filp_open(path, O_RDONLY | O_LARGEFILE, 0);
+    if (IS_ERR(zone_file)) {
+        pr_err("zonefs: filp_open(%s) failed\n", path);
+        return PTR_ERR(zone_file);
+    }
+
+    //iov_iter 구성(읽을 버퍼들 여러개와 읽기 연산 등을 묶은 구조체)
+    kvec.iov_base = out_buf;
+    kvec.iov_len = len;
+    iov_iter_kvec(&iter, ITER_DEST, &kvec, 1, len);
+
+    //kiocb 구성(읽기 요청의 컨텍스트 정보)
+    init_sync_kiocb(&kiocb, zone_file);
+    kiocb.ki_pos = offset;
+    kiocb.ki_flags = IOCB_DIRECT;
+
+    //위 두 정보를 가지고 read_iter 실행
+    if (!(zone_file->f_op) || !(zone_file->f_op->read_iter)) {
+        pr_err("zonefs: read_iter not available on file\n");
+        ret = -EINVAL;
+        return ret;
+    }
+
+    ret = zone_file->f_op->read_iter(&kiocb, &iter);
+
+    filp_close(zone_file, NULL);
     return ret;
 }
 
