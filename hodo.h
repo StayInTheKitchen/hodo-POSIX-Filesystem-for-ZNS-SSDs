@@ -12,34 +12,43 @@
 #ifndef __HODO_H__
 #define __HODO_H__
 
-#define HODO_MAX_NAME_LEN       16
-#define HODO_DATABLOCK_SIZE     4096
-#define HODO_DATA_START         8
-#define HODO_DATA_SIZE          (HODO_DATABLOCK_SIZE - HODO_DATA_START)
+#define TB  (1ULL << 40)
+#define GB  (1ULL << 30)
+#define MB  (1ULL << 20)
+#define KB  (1ULL << 10)
+#define B   (1ULL << 00)
 
-#define HODO_TYPE_REG           0            
-#define HODO_TYPE_DIR           1
+#define HODO_MAX_NAME_LEN   16
 
-#define END_READ                0
-#define NOTHING_FOUND           0
-#define EMPTY_CHECKED           1
+#define HODO_TYPE_REG       0               // regular file(ex : a.txt)      
+#define HODO_TYPE_DIR       1               // directory file(ex : document)
+#define END_READ            0               // for read_dir
+#define NOTHING_FOUND       0               // for lookup, unlink
+#define EMPTY_CHECKED       1               // for rmdir
+#define NEW_DATABLOCK       0               // for write_struct
 
-#define SSD_CAPACITY_GB                 4       // 4GB ZNS-SSD
-#define NUMBER_MAPPING_TABLE_ENTRY      (SSD_CAPACITY_GB * (1 << 18)) 
+#define HODO_DATABLOCK_SIZE             4096 * B       
+#define HODO_DATA_START                 8 * B
+#define HODO_DATA_SIZE                  (HODO_DATABLOCK_SIZE - HODO_DATA_START)
 
-#define NUMBER_ZONES            16              // 16 zones
-#define ZONE_SIZE_MB            256             // 256MB per each zone
-#define BLOCKS_PER_ZONE         (ZONE_SIZE_MB * (1 << 8))
+#define NUMBER_ZONES                    16                              // 16 zones
+#define ZONE_SIZE                       (256ULL * MB)                   // 256MB per each zone
 
-typedef unsigned int logical_block_number_t;
-#define BLOCK_PTR_SZ            sizeof(logical_block_number_t)
+#define SSD_CAPACITY                    (NUMBER_ZONES * ZONE_SIZE)              // total 4GB ZNS SSD
+#define NUMBER_MAPPING_TABLE_ENTRY      (SSD_CAPACITY / HODO_DATABLOCK_SIZE)    // number of 2^20 entries
+#define BLOCKS_PER_ZONE                 (ZONE_SIZE / HODO_DATABLOCK_SIZE)       // 
 
-#define NEW_DATABLOCK           0               // write_struct 참고
+typedef unsigned int                    logical_block_number_t;
+#define BLOCK_PTR_SZ                    sizeof(logical_block_number_t)
 
-#define ZONEFS_TRACE() pr_info("zonefs: >>> %s called\n", __func__)
+typedef uint32_t                        BITMAP_SECTOR;
+#define BIT_PER_BYTE                    8
+#define BITMAP_ENTRY_PER_SECTOR         (sizeof(uint32_t) * BIT_PER_BYTE)
+
+#define ZONEFS_TRACE()                  pr_info("zonefs: >>> %s called\n", __func__)
 
 
-// ZNS-SSD의 Physical Block 주소
+
 struct hodo_block_pos {
     uint16_t zone_id;
     uint16_t block_index;
@@ -75,11 +84,6 @@ struct hodo_inode {
     struct timespec64 i_atime;
     struct timespec64 i_mtime;
     struct timespec64 i_ctime;
-
-    // struct hodo_block_pos direct[10];
-    // struct hodo_block_pos single_indirect;
-    // struct hodo_block_pos double_indirect;
-    // struct hodo_block_pos triple_indirect;
 
     logical_block_number_t direct[10];
     logical_block_number_t single_indirect;
