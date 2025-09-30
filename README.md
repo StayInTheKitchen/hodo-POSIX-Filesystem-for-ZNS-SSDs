@@ -53,7 +53,7 @@
 ### 4. 개발 결과
 
 #### 4.1. 전체 시스템 흐름도
-<img src="image URL" width="600px" title="Title" alt="Alt text">https://github.com/StayInTheKitchen/hodo-POSIX-Filesystem-for-ZNS-SSDs/issues/17</img>
+<img src="image URL" width="600px" title="Title" alt="Alt text">https://github.com/StayInTheKitchen/hodo-POSIX-Filesystem-for-ZNS-SSDs/issues/17#issue-3468228814</img>
 
 -   **Application (사용자 프로그램)**
     
