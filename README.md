@@ -12,6 +12,8 @@
 #### 1.2. 필요성과 기대효과
 > **hodo** 파일시스템을 활용하면 기존의 파일 관련 셸 명령어와 응용 프로그램을 별도의 수정 없이 순수 ZNS SSD 환경에서 구동할 수 있어, 시스템의 **호환성과 사용성**을 크게 향상시킬 수 있습니다.
 
+---
+
 ### 2. 개발 목표
 #### 2.1. 순수 ZNS SSD를 지원하는 POSIX 파일시스템 개발
 > POSIX 파일시스템 operation을 구현해 VFS와 인터페이스하며 POSIX API를 지원하도록 개발했습니다.
@@ -20,6 +22,8 @@
 
 #### 2.2. garbage collection 개발
 > 유효하지 않은 블록(garbage)을 없애 유효 저장공간을 확보하는 기능을 개발했습니다.
+
+---
 
 ### 3. 시스템 설계
 #### 3.1. 시스템 설계 개요
@@ -43,6 +47,8 @@ ZNS SSD 장치에서 다음에 쓰여질 물리 주소를 가리키는 역할을
 -   **관련 기술**: VFS(Virtual File System) 인터페이스, zonefs
 
 -   **도구**: `make`, `gcc`, `gdb`, `fio` 등을 이용한 컴파일 및 성능 검증
+
+---
 
 ### 4. 개발 결과
 
@@ -102,6 +108,7 @@ ZNS SSD 장치에서 다음에 쓰여질 물리 주소를 가리키는 역할을
 - 반영 사항
 > garbage collection 기능을 구현하였으며, 동적 zone 할당 정책 방향성을 제시하며 wear-leveling 관리 방식을 보고서에 반영하였습니다.
 
+---
 
 ### 5. 설치 및 실행 방법
 > 본 프로젝트는 Linux 커널 버전 6.8에서 구동 가능합니다.
@@ -117,7 +124,7 @@ wget https://huggingface.co/datasets/hgft1/femu-image/resolve/main/femu24ubuntu.
 mkdir -p ~/images
 mv femu24ubuntu.qcow2 ~/images/u20s.qcow2
 ```
----
+
 ##### 0-2. FEMU 설치
 ```bash
 cd ~
@@ -132,7 +139,7 @@ cp ../femu-scripts/femu-copy-scripts.sh .
 sudo ./pkgdep.sh
 ./femu-compile.sh
 ```
----
+
 ##### 0-3. FEMU 실행
 ```bash
 cd ~/femu/build-femu
@@ -164,7 +171,7 @@ sudo vgdisplay
 sudo lvextend -L +20G /dev/mapper/ubuntu--vg-ubuntu--lv
 sudo resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
 ```
----
+
 #### Part 1: GitHub에서 커널 v6.8 다운로드 및 전체 빌드
 
 ##### 1-1. 의존 패키지 설치
@@ -184,7 +191,7 @@ cd linux-6.8
 cp /boot/config-$(uname -r) .config
 make olddefconfig
 ```
----
+
 ####  모듈 서명 오류 방지를 위한 설정 변경
 > `canonical-certs.pem` 오류 방지를 위해 `.config`를 아래처럼 수정하세요:
 
@@ -195,7 +202,7 @@ sed -i 's/^CONFIG_SYSTEM_REVOCATION_KEYS=.*/CONFIG_SYSTEM_REVOCATION_KEYS=\"\"/'
 
 make olddefconfig
 ```
----
+
 
 ##### 1-4. 전체 커널 + 모듈 빌드
 ```bash
@@ -215,7 +222,7 @@ sudo update-grub
 sudo reboot
 ```
 > 재부팅 후 `uname -r` → `6.8.x` 확인
----
+
 #### Part 2: hodo 파일시스템 (zonefs 모듈) 설치/컴파일/적용
 ##### 2-1. hodo 파일시스템 설치
 ```bash
@@ -243,15 +250,18 @@ sudo mkzonefs -f /dev/nvme0n1
 sudo mount -t zonefs /dev/nvme0n1 /mnt
 ```
 
+---
+
 ### 6. 소개 자료 및 시연 영상
 #### 6.1. 프로젝트 소개 영상
 > 
 #### 6.2. 시연 영상
 > 
 
+---
+
 ### 7. 팀 구성
-#### 7.1. 팀원별 소개 및 역할 분담
-### 표 8: 구성원별 역할
+#### 7.1. 팀원별 역할 분담
 
 | 구분     | 역할 |
 |----------|------|
