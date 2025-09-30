@@ -257,9 +257,6 @@ sudo mount -t zonefs /dev/nvme0n1 /mnt
 #### 6.1. 프로젝트 소개 영상
 [![프로젝트 소개영상](https://private-user-images.githubusercontent.com/86703422/495585296-3a973484-8b79-4652-9a75-c46f989f0542.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTkyMjI0NzgsIm5iZiI6MTc1OTIyMjE3OCwicGF0aCI6Ii84NjcwMzQyMi80OTU1ODUyOTYtM2E5NzM0ODQtOGI3OS00NjUyLTlhNzUtYzQ2Zjk4OWYwNTQyLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA5MzAlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwOTMwVDA4NDkzOFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTU5NGQ1NjAzM2U4ZmQ2YjI4NjgwMTkwNzljY2Y4MTE4MDg3ZTg5YmY3NGUxMTY2YzNmMmQ1NTEzNzIzMzRkZWUmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.JVozh5TLR_ChB65D0Y3y0QHWq6RamiThR7y6157_OiU)](https://www.youtube.com/watch?v=i1E6tK-mzfY)
 
-#### 6.2. 시연 영상
-> 
-
 ---
 
 ### 7. 팀 구성
@@ -272,8 +269,9 @@ sudo mount -t zonefs /dev/nvme0n1 /mnt
 | **공통**   | 1. zonefs 동작 분석 <br> 2. 파일시스템 구조 설계 <br> 3. GC 관련 설계 개선 및 구현 <br> 4. 개발 기록 및 보고서 작성 |
 
 #### 7.2. 팀원 별 참여 후기
-> 개별적으로 느낀 점, 협업, 기술적 어려움 극복 사례 등
+> 김민준: 장치의 특성을 반영하여 효율적인 파일시스템을 설계하고 구현하는 과정이 재미있었다. 협업 과정에서도 개인의 장점을 잘 살려서 각자의 역할을 잘 수행했기에 프로젝트를 완성할 수 있었다. 내가 애정하는 첫 프로젝트가 생겼다.
 
+> 박천휘: 파일 시스템을 같이 직접 설계하고, 구현과 테스트까지 수행할 수 있어 뜻깊은 경험이었다. 특히 가비지 컬렉션 기능을 추가하기 위해 이미 구현된 기존 설계를 수정해야 했을 때 가장 큰 어려움을 느꼈지만, 스스로의 역량과 책임을 넘어 혼자 해결하려 하기보다는 팀원들과 함께 고민하여 이를 해결해 나가는 과정에서 많은 것을 배웠다.
 ### 8. 참고 문헌 및 출처
 ``` plaintext
 [1] Bjørling, M., Aghayev, A., Holmberg, H., Ramesh, A., Le Moal, D., Ganger, G. R., & Amvrosiadis, G., "Avoiding the block interface tax for flash-based", 2021 USENIX annual technical conference (USENIX ATC 21), pp. 689-703, 2021. 31 
