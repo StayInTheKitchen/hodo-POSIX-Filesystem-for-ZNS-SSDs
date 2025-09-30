@@ -255,7 +255,7 @@ sudo mount -t zonefs /dev/nvme0n1 /mnt
 
 ### 6. 소개 자료 및 시연 영상
 #### 6.1. 프로젝트 소개 영상
-[![프로젝트 소개영상](https://i.ytimg.com/vi/i1E6tK-mzfY/hqdefault.jpg?sqp=-oaymwFBCNACELwBSFryq4qpAzMIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB8AEB-AG-B4AC0AWKAgwIABABGH8gEygTMA8=&rs=AOn4CLA1cifqE-nfWSOShz91BMMnUuE0UQ)](https://www.youtube.com/watch?v=i1E6tK-mzfY)
+[![프로젝트 소개영상](https://private-user-images.githubusercontent.com/86703422/495585296-3a973484-8b79-4652-9a75-c46f989f0542.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTkyMjI0NzgsIm5iZiI6MTc1OTIyMjE3OCwicGF0aCI6Ii84NjcwMzQyMi80OTU1ODUyOTYtM2E5NzM0ODQtOGI3OS00NjUyLTlhNzUtYzQ2Zjk4OWYwNTQyLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA5MzAlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwOTMwVDA4NDkzOFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTU5NGQ1NjAzM2U4ZmQ2YjI4NjgwMTkwNzljY2Y4MTE4MDg3ZTg5YmY3NGUxMTY2YzNmMmQ1NTEzNzIzMzRkZWUmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.JVozh5TLR_ChB65D0Y3y0QHWq6RamiThR7y6157_OiU)](https://www.youtube.com/watch?v=i1E6tK-mzfY)
 
 #### 6.2. 시연 영상
 > 
