@@ -54,6 +54,7 @@
 
 #### 4.1. 전체 시스템 흐름도
 <img src="https://github.com/StayInTheKitchen/hodo-POSIX-Filesystem-for-ZNS-SSDs/issues/17#issue-3468228814" width="600px" title="Title" alt="Alt text"></img>
+![Alt text](https://private-user-images.githubusercontent.com/86703422/495582592-fda2ffc1-b0b7-4150-abda-db1edfac20ae.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTkyMjIyNDUsIm5iZiI6MTc1OTIyMTk0NSwicGF0aCI6Ii84NjcwMzQyMi80OTU1ODI1OTItZmRhMmZmYzEtYjBiNy00MTUwLWFiZGEtZGIxZWRmYWMyMGFlLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA5MzAlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwOTMwVDA4NDU0NVomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTJhMjkxNDNjZDhjNjRmYmMxYWE5OGNhZGU2MTE4OTU2MmVlMGNlNWM3Yjg3MjEzMWUyZjlkMTg3ZmY0NTVhZmQmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.CONzFI4xlN9MipzQkC9GryBWZGq6cBoSWngE66oYT7o)
 
 -   **Application (사용자 프로그램)**
     
