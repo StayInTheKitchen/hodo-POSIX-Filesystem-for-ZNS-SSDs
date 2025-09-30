@@ -30,14 +30,14 @@
 > **hodo** 파일 시스템은 zonefs 파일 시스템 모듈을 확장하여 구현한 로그 구조 파일 시스템입니다.
 
 #### 3.2. 시스템 주요 구성 요소
-1. mapping  table
-아이노드 또는 데이터 블록의 논리 주소와 물리 주소의 매핑 관계를 표현합니다.
+- **mapping  table**
+  - 아이노드 또는 데이터 블록의 논리 주소와 물리 주소의 매핑 관계를 표현합니다.
 
-2. 쓰기 포인터
-ZNS SSD 장치에서 다음에 쓰여질 물리 주소를 가리키는 역할을 합니다.
+- **쓰기 포인터**
+ - ZNS SSD 장치에서 다음에 쓰여질 물리 주소를 가리키는 역할을 합니다.
 
-3. multi-level indexing scheme
-약 4TB의 최대 파일 크기를 지원합니다. 
+- **multi-level indexing scheme**
+ - 약 4TB의 최대 파일 크기를 지원합니다. 
  
 #### 3.3. 사용 기술
 -   **프로그래밍 언어**: C 언어
@@ -53,6 +53,7 @@ ZNS SSD 장치에서 다음에 쓰여질 물리 주소를 가리키는 역할을
 ### 4. 개발 결과
 
 #### 4.1. 전체 시스템 흐름도
+![전체 시스템 흐름도](./docs/4.1. 전체 시스템 흐름도.png)
 
 -   **Application (사용자 프로그램)**
     
@@ -254,7 +255,8 @@ sudo mount -t zonefs /dev/nvme0n1 /mnt
 
 ### 6. 소개 자료 및 시연 영상
 #### 6.1. 프로젝트 소개 영상
-> 
+[![프로젝트 소개영상](https://i.ytimg.com/vi/i1E6tK-mzfY/hqdefault.jpg?sqp=-oaymwFBCNACELwBSFryq4qpAzMIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB8AEB-AG-B4AC0AWKAgwIABABGH8gEygTMA8=&rs=AOn4CLA1cifqE-nfWSOShz91BMMnUuE0UQ)](https://www.youtube.com/watch?v=i1E6tK-mzfY)
+
 #### 6.2. 시연 영상
 > 
 
